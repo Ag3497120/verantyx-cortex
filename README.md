@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="ronin-banner.png" alt="Ronin AI Agent OS" width="100%" />
+  <img src="ronin-banner.jpg" alt="Ronin AI Agent OS" width="100%" />
 
   <h3>The Masterless Autonomous Hacker Agent</h3>
 
