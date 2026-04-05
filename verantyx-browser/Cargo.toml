@@ -1,0 +1,30 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/vx-net",
+    "crates/vx-dom",
+    "crates/vx-js",
+    "crates/vx-render",
+    "crates/vx-input",
+    "crates/vx-browser",
+    "crates/vx-layout",
+    "crates/vx-css",
+    "crates/vx-security",
+    "crates/vx-a11y",
+    "crates/vx-media",
+    "crates/vx-storage",
+    "crates/vx-spatial", "crates/vx-ipc", "crates/vx-sandbox-os", "crates/vx-a11y-tree", "crates/vx-compositor", "crates/vx-extensions", "crates/vx-media-pipeline", "crates/ronin-core", "crates/ronin-diff-ux", "crates/ronin-synapse", "crates/ronin-sandbox", "crates/ronin-cli", "crates/ronin-repomap", "crates/ronin-coder", "crates/ronin-vfs-gatekeeper", "crates/ronin-git", "crates/ronin-telemetry", "crates/ronin-hive", "crates/ronin-warden", "crates/ronin-linter", "crates/ronin-rag",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+authors = ["Kodai Motonishi"]
+
+[workspace.dependencies]
+tokio = { version = "1", features = ["full"] }
+anyhow = "1"
+thiserror = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.env
+*.lock
+.DS_Store
+.github/workflows/
+\nverantyx-browser/target/\n__pycache__/\n*.pyc\n
+\n# Massive Ignored Files\nnode_modules/\nverantyx-browser/target/\ntarget/\n__pycache__/\n*.pyc\n
+
+# Ronin
+.ronin/backups/
+.ronin/audit/

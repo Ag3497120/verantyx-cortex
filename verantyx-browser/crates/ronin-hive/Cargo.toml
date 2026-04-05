@@ -1,0 +1,24 @@
+[package]
+name = "ronin-hive"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+async-trait = "0.1.89"
+ronin-coder = { version = "0.1.0", path = "../ronin-coder" }
+ronin-core = { version = "0.1.0", path = "../ronin-core" }
+ronin-rag = { version = "0.1.0", path = "../ronin-rag" }
+ronin-sandbox = { version = "0.1.0", path = "../ronin-sandbox" }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["rt", "rt-multi-thread", "macros", "sync"] }
+tracing = "0.1.44"
+uuid = { version = "1.23.0", features = ["serde", "v4"] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+tracing-subscriber = "0.3.23"
