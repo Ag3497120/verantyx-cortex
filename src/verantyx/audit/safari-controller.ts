@@ -223,7 +223,7 @@ export class SafariController {
 
   // ── High-level: ask Gemini ──
 
-  async askGemini(prompt: string, timeoutMs = 60_000): Promise<AskResult> {
+  async askGemini(prompt: string, timeoutMs = 180_000): Promise<AskResult> {
     const t0 = Date.now();
 
     if (this.checkSubscriptionWarning()) {
@@ -233,9 +233,19 @@ export class SafariController {
     const prevCount = this.getResponseCount();
 
     try {
-      await this.typeText(prompt);
-      await sleep(800);
-      await this.sendMessage();
+      // 1. Copy to Clipboard for Human-in-the-Loop Bot Evasion
+      execSync("pbcopy", { input: prompt, encoding: "utf-8" });
+      
+      console.log("\\n\\x1b[35m[STEALTH HITL EVASION]\\x1b[0m Prompt copied to clipboard!");
+      console.log("\\x1b[33mACTION REQUIRED:\\x1b[0m Please focus the Gemini window, Press Cmd+V (Paste), and press Enter.");
+      
+      // 2. Play a sound and trigger a native Push Notification so the user knows they need to act
+      try {
+        this.runAppleScript(`display notification "Please Paste (Cmd+V) and Submit in Gemini." with title "Ronin Stealth Mode" sound name "Glass"`);
+      } catch (e) {}
+
+      // removed synthetic await this.typeText(prompt);
+      // removed synthetic await this.sendMessage();
     } catch (e: any) {
       return { status: "error", response: e.message, durationMs: Date.now() - t0 };
     }

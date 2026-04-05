@@ -79,7 +79,7 @@ cargo build 2>&1 | ronin exec "Analyze this compiler error and patch the malfunc
 ## 🔪 Highlights
 
 * **Masterless Architecture:** You own the infrastructure. Zero dependency on expensive OpenAI or Anthropic API providers. The core reasoning loops run on your local hardware via Gemma 4.
-* **Stealth Web Driver:** When deep reasoning is required, Ronin dynamically spawns an invisible WKWebView window to visually scrape and interact with Gemini Ultra's free web tier. Complete evasion of Google's bot detection.
+* **Stealth Web Driver (HITL Evasion):** When deep reasoning is required, Ronin dynamically spawns an invisible WKWebView window. To achieve a **0% Bot Detection Rate**, Ronin copies complex prompts straight to your macOS clipboard and fires a native push notification. You simply hit `Cmd+V` and `Enter`. Google's telemetry records a 100% human keystroke, completely bypassing reCAPTCHA and bot triggers.
 * **JCross Spatial Memory:** Say goodbye to dumb VectorDB chunking. Ronin organizes contextual shards geographically (Front/Mid/Deep memory zones), allowing it to remember 70,000+ lines of code without blowing up the context window.
 * **Unix Pipeline Philosophy:** Built for the terminal. Ronin inhales standard input beautifully. Connect it to your existing CLI workflows:
   ```bash
