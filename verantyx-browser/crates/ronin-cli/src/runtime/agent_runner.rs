@@ -124,45 +124,69 @@ impl AgentRunner {
             .map(|m| m.render())
             .unwrap_or_else(|_| String::new());
 
-        // 4. Initialize Multi-Agent Hive Network (Commander, Planner, Coder, Reviewer)
+        // 4. Initialize Multi-Agent Hive Network (Commander, Planner, Coder, Reviewer, Stealth)
         info!("[Runner] Booting Ronin Multi-Agent Hive System...");
         let spinner = Self::make_spinner("Coordinating Agent Hive Network…");
         
         let mut commander_actor = ronin_hive::roles::commander::CommanderActor;
+        let mut planner_actor = ronin_hive::roles::planner::PlannerActor::new(&self.config.memory.root_dir);
+        let mut coder_actor = ronin_hive::roles::coder::CoderActor::new(&runner_cfg.cwd);
+        let mut reviewer_actor = ronin_hive::roles::reviewer::ReviewerActor::new(&runner_cfg.cwd);
+        let mut stealth_actor = ronin_hive::roles::stealth_gemini::StealthWebActor::new(uuid::Uuid::new_v4());
 
         let mut task_objective = runner_cfg.task.clone();
         if runner_cfg.force_stealth {
             task_objective = format!("[STEALTH_FORCE] {}", task_objective);
         }
 
-        let task_envelope = ronin_hive::actor::Envelope {
+        let mut next_envelope = Some(ronin_hive::actor::Envelope {
             message_id: uuid::Uuid::new_v4(),
             sender: "User_CLI".to_string(),
             recipient: "Commander".to_string(),
             payload: serde_json::to_string(&ronin_hive::messages::HiveMessage::Objective(task_objective))?,
-        };
+        });
 
-        // 5. Dispatch task directly into CommanderActor
-        // In a real actor loop this would be a message bus. We simulate synchronous E2E call here.
-        info!("[Runner] Injecting Objective into Commander Actor...");
-        let commander_reply = commander_actor.receive(task_envelope).await?;
-        
-        let final_response = match commander_reply {
-            Some(env) => {
-                // If it spawned a sub-agent (StealthGemini) or delegated, parse payload
-                if let Ok(ronin_hive::messages::HiveMessage::SpawnSubAgent { id: _, objective }) = serde_json::from_str(&env.payload) {
-                    format!("Commander offloaded task to SubAgent/Hive pipeline: {}", objective)
-                } else {
-                    format!("Commander yielded response: {}", env.payload)
+        // 5. Run the Hive Actor synchronous network event loop
+        info!("[Runner] Injecting Objective into Actor System...");
+        let mut final_response = String::new();
+        let mut step_count = 0;
+
+        while let Some(env) = next_envelope {
+            step_count += 1;
+            match env.recipient.as_str() {
+                "Commander" => {
+                    next_envelope = commander_actor.receive(env).await?;
+                },
+                "Planner" => {
+                    next_envelope = planner_actor.receive(env).await?;
+                },
+                "Coder" => {
+                    next_envelope = coder_actor.receive(env).await?;
+                },
+                "Reviewer" => {
+                    next_envelope = reviewer_actor.receive(env).await?;
+                },
+                "StealthGeminiWorker" => {
+                    spinner.suspend(|| {}); // Suspend spinner safely so prompt isn't jumbled
+                    next_envelope = stealth_actor.receive(env).await?;
+                },
+                "User_CLI" => {
+                    final_response = env.payload;
+                    break;
+                },
+                other => {
+                    final_response = format!("Actor pipeline stalled. Unhandled recipient: {}", other);
+                    break;
                 }
-            },
-            None => {
-                "Commander processed task without an explicit return message (e.g. delegated purely into background async queue).".to_string()
             }
-        };
+        }
+        
+        if final_response.is_empty() {
+            final_response = "Execution completed asynchronously with no final callback to User_CLI.".to_string();
+        }
 
         spinner.finish_and_clear();
-        let steps = 1; // Simulated for now since Actor Network does internal steps
+        let steps = step_count;
         let commands_executed = 0; // Handled by ReviewerActor internally
 
         let mut files_modified_final = vec![];

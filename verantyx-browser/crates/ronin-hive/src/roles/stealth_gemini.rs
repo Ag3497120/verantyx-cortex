@@ -54,12 +54,63 @@ impl Actor for StealthWebActor {
                     self.respawn_browser_session();
                 }
 
-                // Stub out actual Browser manipulation and return a result
-                let stub_output = format!("Stub Gemini Answer for: {}", objective);
+                // 1. Copy objective to clipboard
+                info!("[StealthGemini-{}] Injecting prompt to macOS Clipboard...", self.id);
+                use std::process::{Command, Stdio};
+                use std::io::Write;
+
+                let mut pbcopy = Command::new("pbcopy")
+                    .stdin(Stdio::piped())
+                    .spawn()
+                    .unwrap_or_else(|e| panic!("Failed to run pbcopy: {}", e));
+                
+                if let Some(mut stdin) = pbcopy.stdin.take() {
+                    stdin.write_all(objective.as_bytes()).ok();
+                }
+                pbcopy.wait().ok();
+
+                // 2. Trigger Notification
+                info!("[StealthGemini-{}] Firing HITL Push Notification...", self.id);
+                let _ = Command::new("osascript")
+                    .arg("-e")
+                    .arg("display notification \"Prompt copied to clipboard! Please paste into Gemini.\" with title \"Ronin 🐺 Stealth Web\"")
+                    .spawn();
+
+                // 3. Open Browser
+                info!("[StealthGemini-{}] Booting Chrome/Safari proxy to gemini.google.com...", self.id);
+                let _ = Command::new("open")
+                    .arg("https://gemini.google.com/app")
+                    .spawn();
+
+                // 4. Await User Input
+                println!("\n\x1b[36m────────────────────────────────────────────────────────────\x1b[0m");
+                println!("\x1b[1;36m🐺 Stealth Web Evasion Protocol Active\x1b[0m \x1b[2m──────────────────────\x1b[0m");
+                println!("1. A new browser tab to Google Gemini has been opened.");
+                println!("2. Your prompt is copied. Just press \x1b[32mCmd+V\x1b[0m and \x1b[32mEnter\x1b[0m!");
+                println!("3. Paste Gemini's response below (Type 'EOF' on a new line and press Enter to finish):");
+                println!("\x1b[36m────────────────────────────────────────────────────────────\x1b[0m");
+                
+                let mut captured_response = String::new();
+                let stdin_handle = std::io::stdin();
+                let mut iter = stdin_handle.lines();
+                while let Some(Ok(line)) = iter.next() {
+                    if line.trim() == "EOF" {
+                        break;
+                    }
+                    captured_response.push_str(&line);
+                    captured_response.push('\n');
+                }
+
+                let final_output = if captured_response.trim().is_empty() {
+                    warn!("[StealthGemini-{}] User canceled or provided empty input.", self.id);
+                    "Empty response.".to_string()
+                } else {
+                    captured_response.trim().to_string()
+                };
 
                 let result = HiveMessage::SubAgentResult {
                     id: self.id,
-                    output: stub_output,
+                    output: final_output,
                 };
                 
                 Ok(Some(Envelope {
