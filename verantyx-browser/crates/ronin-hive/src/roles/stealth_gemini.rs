@@ -54,58 +54,108 @@ impl Actor for StealthWebActor {
                     self.respawn_browser_session();
                 }
 
-                // 1. Copy objective to clipboard
-                info!("[StealthGemini-{}] Injecting prompt to macOS Clipboard...", self.id);
-                use std::process::{Command, Stdio};
-                use std::io::Write;
+                // Carbon-Paper Stealth DOM Injection
+                info!("[StealthGemini-{}] Initializing Carbon Paper stealth wrapper...", self.id);
 
-                let mut pbcopy = Command::new("pbcopy")
-                    .stdin(Stdio::piped())
-                    .spawn()
-                    .unwrap_or_else(|e| panic!("Failed to run pbcopy: {}", e));
+                use std::process::Command;
+                use base64::{Engine as _, engine::general_purpose};
+
+                let run_applescript = |script: &str| -> String {
+                    let out = Command::new("osascript")
+                        .arg("-e").arg(script)
+                        .output()
+                        .expect("Failed to execute osascript");
+                    String::from_utf8_lossy(&out.stdout).trim().to_string()
+                };
+
+                let run_js = |js: &str| -> String {
+                    let escaped = js.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "");
+                    let script = format!("tell application \"Safari\"\nreturn do JavaScript \"{}\" in front document\nend tell", escaped);
+                    run_applescript(&script)
+                };
+
+                // 1. Move Safari to background/hide it, ensuring Gemini tab is open
+                let prepare_js = "if (!window.location.href.includes('gemini.google.com')) window.location.href = 'https://gemini.google.com/app';";
+                run_js(prepare_js);
+                // Wait for page load if it was redirecting
+                std::thread::sleep(std::time::Duration::from_millis(2000));
+
+                let prev_count = run_js("return (document.body.innerText.split('Gemini の回答').length - 1).toString();").parse::<i32>().unwrap_or(0);
+
+                // 2. Inject Prompt
+                info!("[StealthGemini-{}] Injecting query via Headless DOM...", self.id);
+                let b64 = general_purpose::STANDARD.encode(objective.as_bytes());
+                let inject_js = format!("
+                    (function(){{
+                        var encoded='{}';
+                        var decoded=decodeURIComponent(escape(atob(encoded)));
+                        var el=document.querySelector('div.ql-editor[contenteditable=true]') || document.querySelector('textarea');
+                        if(!el) return 'ERROR';
+                        el.focus(); el.click();
+                        if(el.classList.contains('ql-editor')){{
+                            var c=el.closest('.ql-container');
+                            var q=c&&c.__quill;
+                            if(q){{q.setText(decoded); q.emitter.emit('text-change',{{ops:[{{insert:decoded}}]}},{{ops:[]}},'user');}}
+                            else {{el.innerText=decoded; el.dispatchEvent(new Event('input',{{bubbles:true}}));}}
+                        }} else {{
+                            el.value=decoded; el.dispatchEvent(new Event('input',{{bubbles:true}}));
+                        }}
+                        return 'OK';
+                    }})();
+                ", b64);
                 
-                if let Some(mut stdin) = pbcopy.stdin.take() {
-                    stdin.write_all(objective.as_bytes()).ok();
-                }
-                pbcopy.wait().ok();
+                run_js(&inject_js);
+                std::thread::sleep(std::time::Duration::from_millis(500));
 
-                // 2. Trigger Notification
-                info!("[StealthGemini-{}] Firing HITL Push Notification...", self.id);
-                let _ = Command::new("osascript")
-                    .arg("-e")
-                    .arg("display notification \"Prompt copied to clipboard! Please paste into Gemini.\" with title \"Ronin 🐺 Stealth Web\"")
-                    .spawn();
+                // 3. Submit
+                info!("[StealthGemini-{}] Committing prompt...", self.id);
+                let submit_js = "(function(){var btn=document.querySelector('button[aria-label*=\"プロンプトを送信\"]') || document.querySelector('button[aria-label*=\"Send\"]'); if(btn) {btn.click(); return 'OK';} return 'ERROR';})();";
+                run_js(submit_js);
 
-                // 3. Open Browser
-                info!("[StealthGemini-{}] Booting Chrome/Safari proxy to gemini.google.com...", self.id);
-                let _ = Command::new("open")
-                    .arg("https://gemini.google.com/app")
-                    .spawn();
+                // 4. Poll Response
+                info!("[StealthGemini-{}] Polling for stream stabilization...", self.id);
+                let poll_js = format!("
+                    (function(){{
+                        var parts=document.body.innerText.split('Gemini の回答');
+                        if (parts.length > {} + 1) {{
+                            var last = parts[parts.length-1];
+                            var idx;
+                            idx=last.indexOf('あなたのプロンプト'); if(idx>0) last=last.substring(0,idx);
+                            idx=last.indexOf('Gemini は AI であり'); if(idx>0) last=last.substring(0,idx);
+                            idx=last.lastIndexOf('ツール'); if(idx>0) last=last.substring(0,idx);
+                            idx=last.indexOf('回答案を表示'); if(idx>0) last=last.substring(0,idx);
+                            return last.trim();
+                        }}
+                        return '';
+                    }})();
+                ", prev_count);
 
-                // 4. Await User Input
-                println!("\n\x1b[36m────────────────────────────────────────────────────────────\x1b[0m");
-                println!("\x1b[1;36m🐺 Stealth Web Evasion Protocol Active\x1b[0m \x1b[2m──────────────────────\x1b[0m");
-                println!("1. A new browser tab to Google Gemini has been opened.");
-                println!("2. Your prompt is copied. Just press \x1b[32mCmd+V\x1b[0m and \x1b[32mEnter\x1b[0m!");
-                println!("3. Paste Gemini's response below (Type 'EOF' on a new line and press Enter to finish):");
-                println!("\x1b[36m────────────────────────────────────────────────────────────\x1b[0m");
-                
-                let mut captured_response = String::new();
-                let stdin_handle = std::io::stdin();
-                let mut iter = stdin_handle.lines();
-                while let Some(Ok(line)) = iter.next() {
-                    if line.trim() == "EOF" {
-                        break;
+                let mut last_response = String::new();
+                let mut stable_count = 0;
+                let max_attempts = 60; // 2 mins timeout given 2s sleep
+
+                for _ in 0..max_attempts {
+                    std::thread::sleep(std::time::Duration::from_millis(2000));
+                    let current = run_js(&poll_js);
+                    
+                    if !current.is_empty() {
+                        if current == last_response {
+                            stable_count += 1;
+                            if stable_count >= 2 {
+                                break;
+                            }
+                        } else {
+                            stable_count = 0;
+                            last_response = current;
+                        }
                     }
-                    captured_response.push_str(&line);
-                    captured_response.push('\n');
                 }
 
-                let final_output = if captured_response.trim().is_empty() {
-                    warn!("[StealthGemini-{}] User canceled or provided empty input.", self.id);
-                    "Empty response.".to_string()
+                let final_output = if last_response.is_empty() {
+                    warn!("[StealthGemini-{}] Timeout waiting for Gemini.", self.id);
+                    "Error: Request timed out or DOM structure rejected injection.".to_string()
                 } else {
-                    captured_response.trim().to_string()
+                    last_response
                 };
 
                 let result = HiveMessage::SubAgentResult {

@@ -8,6 +8,7 @@ authors.workspace = true
 [dependencies]
 anyhow.workspace = true
 async-trait = "0.1.89"
+base64 = "0.22.1"
 ronin-coder = { version = "0.1.0", path = "../ronin-coder" }
 ronin-core = { version = "0.1.0", path = "../ronin-core" }
 ronin-rag = { version = "0.1.0", path = "../ronin-rag" }
