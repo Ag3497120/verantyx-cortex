@@ -23,9 +23,21 @@
 
 ---
 
+## 💻 System & Model Requirements
+
+Because Ronin drives a stealth WKWebView native to Apple platforms and relies on deep unified memory for local inference, it has strict hardware prerequisites:
+
+* **OS**: macOS 13 (Ventura) or later
+* **Hardware**: Apple Silicon (M1/M2/M3/M4) inherently recommended for `safetensors` / `gguf` inference speed.
+* **Memory**: 16GB+ Unified Memory (32GB+ strongly recommended for complex JCross memory operations).
+
+---
+
 ## ⚡ Quick Start (TL;DR)
 
 No massive Docker dependencies. No external API keys to configure. Just pure, compiled Rust hitting your Mac's unified memory.
+
+> **💡 Note on LLM Weights**: Ronin automatically pipes instructions to Ollama. Make sure you have [Ollama](https://ollama.com/) installed and have pulled the base model (`ollama run gemma2`) before waking up Ronin, or it will automatically attempt to fetch the ~5GB weights on first boot.
 
 ```bash
 # Install via Cargo
@@ -36,6 +48,30 @@ curl -sSL https://ronin.sh/install | bash
 
 # Wake up the Ronin
 ronin start --stealth
+```
+
+---
+
+## 🎮 Usage Examples
+
+Ronin is highly versatile. Use it as a deep architectural partner, or let it autonomously chew through your codebase.
+
+**1. Interactive Shell (Chat Mode)**
+Launch the REPL to organically discuss implementations or architecture:
+```bash
+ronin chat
+```
+
+**2. Autonomous File Editing (Agent Mode)**
+Target a specific goal, and Ronin will parse your workspace, write code, run sandbox tests, and patch the physical files.
+```bash
+ronin agent --task "Implement OAuth2 login in src/auth.rs"
+```
+
+**3. Unix Pipeline Fixes (Pipe Mode)**
+Feed stdout directly into Ronin so it can diagnose and fix active bugs:
+```bash
+cargo build 2>&1 | ronin exec "Analyze this compiler error and patch the malfunctioning struct."
 ```
 
 ---
@@ -82,7 +118,7 @@ In the era of agentic software, **security is non-negotiable.**
 
 ## ⚙️ Build from Source
 
-For those who want to compile the 70k+ lines of autonomous capability themselves:
+For those who want to compile the core capabilities themselves:
 
 ```bash
 git clone https://github.com/verantyx/ronin-cli.git
