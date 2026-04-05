@@ -21,9 +21,10 @@ use ronin_core::{
     },
     models::{
         context_budget::ContextBudget,
+        sampling_params::{InferenceRequest, SamplingParams},
         provider::{
             ollama::OllamaProvider, anthropic::AnthropicProvider,
-            gemini::GeminiProvider, LlmProvider,
+            gemini::GeminiProvider, LlmProvider, LlmMessage,
         },
         tier_calibration::TierProfile,
     },
@@ -77,7 +78,7 @@ impl AgentRunner {
         Self { config }
     }
 
-    pub async fn run(&self, runner_cfg: RunnerConfig) -> Result<RunResult> {
+    pub async fn run(&self, mut runner_cfg: RunnerConfig) -> Result<RunResult> {
         let model = runner_cfg.model_override
             .as_deref()
             .unwrap_or(&self.config.agent.primary_model)
@@ -89,7 +90,8 @@ impl AgentRunner {
         let max_steps = runner_cfg.max_steps
             .unwrap_or(self.config.agent.max_steps);
 
-        info!("[Runner] Task: {}", &runner_cfg.task[..runner_cfg.task.len().min(80)]);
+        let display_task: String = runner_cfg.task.chars().take(80).collect();
+        info!("[Runner] Task: {}", display_task);
         info!("[Runner] Model: {} | HITL: {} | MaxSteps: {}", model, hitl, max_steps);
 
         // 1. Derive tier profile from model name
@@ -117,14 +119,114 @@ impl AgentRunner {
         let injector = ContextInjector::new(&spatial_index, injector_cfg);
         let memory_block = injector.build_injection_block();
 
-        // 3. Build Repo Map
-        info!("[Runner] Generating Repo AST Map...");
-        let repo_map = ronin_repomap::RepoMapGenerator::new(&runner_cfg.cwd)
-            .generate()
-            .map(|m| m.render())
-            .unwrap_or_else(|_| String::new());
+        // Capture Start Time to exclude pre-existing unstaged git changes from audit
+        let run_start_time = std::time::SystemTime::now();
 
-        // 4. Initialize Multi-Agent Hive Network (Commander, Planner, Coder, Reviewer, Stealth)
+        // 4. Pre-Flight Intent Router (Local SLM Analysis)
+        let provider = self.build_provider(&model);
+        println!("\n{} Analyzing Objective Intent...", style("🧠").magenta().bold());
+
+        let lang_desc = match self.config.agent.system_language {
+            ronin_core::domain::config::SystemLanguage::Japanese => "プロンプト言語は必ず「日本語」で出力してください。",
+            ronin_core::domain::config::SystemLanguage::English => "Ensure the generated prompts are written strictly in English.",
+        };
+
+        let meta_prompt = format!("
+You are the Ronin Intent Router. 
+User Prompt: {}
+Decompose the context and purpose. If the prompt asks to 'analyze', 'look into', 'investigate' or implies scanning the project, generate a dedicated system prompt for the Local SLM to analyze the file hierarchy (PureThrough mode), AND a dedicated execution prompt for the Commander AI (Gemini) that will run afterwards.
+{}
+Output ONLY valid JSON matching this schema:
+{{
+    \"needs_mapping\": true,
+    \"target_directory\": \"/path/to/extracted/absolute/directory/if/present/in/prompt (optional)\",
+    \"local_analysis_prompt\": \"Prompt telling local SLM how to summarize the repository tree\",
+    \"gemini_directive_prompt\": \"Distilled execution instructions for Gemini\"
+}}
+If no mapping is needed, set needs_mapping to false.
+", runner_cfg.task, lang_desc);
+
+        let req = InferenceRequest {
+            model: model.clone(),
+            format: ronin_core::models::sampling_params::PromptFormat::OllamaChat,
+            stream: false,
+            sampling: SamplingParams::for_midweight().with_max_tokens(1500).with_temperature(0.2),
+        };
+        let history = vec![
+            LlmMessage { role: "system".to_string(), content: "You return only JSON.".to_string() },
+            LlmMessage { role: "user".to_string(), content: meta_prompt }
+        ];
+        
+        let mut final_objective = runner_cfg.task.clone();
+
+        if let Ok(json_res) = provider.invoke(&req, &history).await {
+            // Primitive JS-style JSON stripping
+            let clean_json = json_res.replace("```json", "").replace("```", "");
+            #[derive(serde::Deserialize)]
+            struct IntentRoute {
+                needs_mapping: bool,
+                target_directory: Option<String>,
+                local_analysis_prompt: Option<String>,
+                gemini_directive_prompt: Option<String>,
+            }
+
+            if let Ok(route) = serde_json::from_str::<IntentRoute>(&clean_json) {
+                // Dynamically intercept path shifts if the prompt asked to analyze a specific absolute path
+                if let Some(mut target_dir) = route.target_directory {
+                    target_dir = target_dir.trim().to_string();
+                    let p = std::path::Path::new(&target_dir);
+                    if p.is_absolute() && p.exists() {
+                        runner_cfg.cwd = p.to_path_buf();
+                        println!("{} Redirected operational context to: {}", console::style("📂").magenta(), target_dir);
+                    }
+                }
+                if route.needs_mapping {
+                    println!("{} Intent [MAP_AND_EXECUTE] Detected!", style("⚡").cyan());
+                    
+                    let mut repo_map = "No Map".to_string();
+                    if let Ok(generator) = ronin_repomap::RepoMapGenerator::new(&runner_cfg.cwd).generate() {
+                        repo_map = generator.render();
+                    }
+                    
+                    let analysis_prompt = route.local_analysis_prompt.unwrap_or_else(|| "Summarize this repo.".to_string());
+                    println!("{} Local SLM Executing PureThrough Analysis...", style("🔍").yellow());
+                    
+                    let pt_req = InferenceRequest {
+                        model: model.clone(),
+                        format: ronin_core::models::sampling_params::PromptFormat::OllamaChat,
+                        stream: false,
+                        sampling: SamplingParams::for_midweight().with_max_tokens(2000).with_temperature(0.2),
+                    };
+                    let pt_hist = vec![
+                        LlmMessage { role: "system".to_string(), content: "You are the PureThrough spatial analyzer. Output a Markdown explanation of the repository structure.".to_string() },
+                        LlmMessage { role: "user".to_string(), content: format!("{}\n\nTree:\n{}", analysis_prompt, repo_map) }
+                    ];
+                    
+                    if let Ok(pt_res) = provider.invoke(&pt_req, &pt_hist).await {
+                        let memory_dir = runner_cfg.cwd.join(".ronin/memory/front");
+                        let _ = tokio::fs::create_dir_all(&memory_dir).await;
+                        let out_file = memory_dir.join("purethrough_map.md");
+                        let pt_content = format!("# PureThrough Spatial Map\n\n{}\n\n## Auto-Generated AST Map\n```\n{}\n```", pt_res, repo_map);
+                        let _ = tokio::fs::write(&out_file, pt_content.clone()).await;
+                        println!("{} Spatial Map anchored into Memory!", style("✅").green());
+
+                        // Automatically inject the map into Gemini's objective so it doesn't have to read it manually
+                        final_objective = format!("{}\n\n[SYSTEM REPOSITORY MAP]\n```\n{}\n```", route.gemini_directive_prompt.unwrap_or(final_objective), pt_content);
+                    } else {
+                        final_objective = route.gemini_directive_prompt.unwrap_or(final_objective);
+                    }
+                } else {
+                    println!("{} Intent [EXECUTE_DIRECTLY] Detected.", style("⚡").blue());
+                    final_objective = route.gemini_directive_prompt.unwrap_or(final_objective);
+                }
+            } else {
+                warn!("[Router] Failed to parse SLM JSON: {}", clean_json);
+            }
+        } else {
+            warn!("[Router] LLM execution failed.");
+        }
+
+        // 5. Initialize Multi-Agent Hive Network
         info!("[Runner] Booting Ronin Multi-Agent Hive System...");
         let spinner = Self::make_spinner("Coordinating Agent Hive Network…");
         
@@ -132,52 +234,144 @@ impl AgentRunner {
         let mut planner_actor = ronin_hive::roles::planner::PlannerActor::new(&self.config.memory.root_dir);
         let mut coder_actor = ronin_hive::roles::coder::CoderActor::new(&runner_cfg.cwd);
         let mut reviewer_actor = ronin_hive::roles::reviewer::ReviewerActor::new(&runner_cfg.cwd);
-        let mut stealth_actor = ronin_hive::roles::stealth_gemini::StealthWebActor::new(uuid::Uuid::new_v4());
+        let consensus_actor = ronin_hive::roles::consensus::LocalConsensusActor::new(
+            self.config.providers.ollama.host.clone(),
+            self.config.providers.ollama.port,
+            self.config.agent.primary_model.clone()
+        );
 
-        let mut task_objective = runner_cfg.task.clone();
+        let mut senior_actor = ronin_hive::roles::stealth_gemini::StealthWebActor::new(
+            uuid::Uuid::new_v4(),
+            self.config.sandbox.allow_filesystem_escape,
+            runner_cfg.cwd.clone(),
+            self.config.agent.primary_model.clone(),
+            self.config.providers.ollama.host.clone(),
+            self.config.providers.ollama.port,
+            self.config.agent.system_language == ronin_core::domain::config::SystemLanguage::Japanese,
+            ronin_hive::roles::stealth_gemini::SystemRole::SeniorObserver,
+            1,
+        );
+
+        let mut junior_actor: Option<ronin_hive::roles::stealth_gemini::StealthWebActor> = None;
+
         if runner_cfg.force_stealth {
-            task_objective = format!("[STEALTH_FORCE] {}", task_objective);
+            final_objective = format!("[STEALTH_FORCE] {}", final_objective);
         }
 
-        let mut next_envelope = Some(ronin_hive::actor::Envelope {
-            message_id: uuid::Uuid::new_v4(),
-            sender: "User_CLI".to_string(),
-            recipient: "Commander".to_string(),
-            payload: serde_json::to_string(&ronin_hive::messages::HiveMessage::Objective(task_objective))?,
-        });
+        let extract_output = |opt_env: Option<ronin_hive::actor::Envelope>| -> String {
+            if let Some(env) = opt_env {
+                if let Ok(ronin_hive::messages::HiveMessage::SubAgentResult { output, .. }) = serde_json::from_str(&env.payload) {
+                    return output;
+                }
+            }
+            String::new()
+        };
 
-        // 5. Run the Hive Actor synchronous network event loop
-        info!("[Runner] Injecting Objective into Actor System...");
+        // 5. Run the Triple-Helix Swarm Network
+        info!("[Runner] Injecting Objective into Triple-Helix Swarm...");
         let mut final_response = String::new();
         let mut step_count = 0;
+        let mut current_objective = final_objective;
+        let mut next_tab_index = 2; // Junior will spawn on tab 2
 
-        while let Some(env) = next_envelope {
+        loop {
             step_count += 1;
-            match env.recipient.as_str() {
-                "Commander" => {
-                    next_envelope = commander_actor.receive(env).await?;
-                },
-                "Planner" => {
-                    next_envelope = planner_actor.receive(env).await?;
-                },
-                "Coder" => {
-                    next_envelope = coder_actor.receive(env).await?;
-                },
-                "Reviewer" => {
-                    next_envelope = reviewer_actor.receive(env).await?;
-                },
-                "StealthGeminiWorker" => {
-                    spinner.suspend(|| {}); // Suspend spinner safely so prompt isn't jumbled
-                    next_envelope = stealth_actor.receive(env).await?;
-                },
-                "User_CLI" => {
-                    final_response = env.payload;
-                    break;
-                },
-                other => {
-                    final_response = format!("Actor pipeline stalled. Unhandled recipient: {}", other);
-                    break;
+            
+            // Check Sliding Window Expiration
+            if senior_actor.current_turns >= senior_actor.turn_limit {
+                info!("[Runner] Senior reached turn limit. Triggering Sliding Window Handover...");
+                // Junior promotes to Senior
+                if let Some(mut j) = junior_actor.take() {
+                    j.role = ronin_hive::roles::stealth_gemini::SystemRole::SeniorObserver;
+                    senior_actor = j;
                 }
+                
+                // Spawn new Junior
+                junior_actor = Some(ronin_hive::roles::stealth_gemini::StealthWebActor::new(
+                    uuid::Uuid::new_v4(),
+                    self.config.sandbox.allow_filesystem_escape,
+                    runner_cfg.cwd.clone(),
+                    self.config.agent.primary_model.clone(),
+                    self.config.providers.ollama.host.clone(),
+                    self.config.providers.ollama.port,
+                    self.config.agent.system_language == ronin_core::domain::config::SystemLanguage::Japanese,
+                    ronin_hive::roles::stealth_gemini::SystemRole::JuniorObserver,
+                    next_tab_index,
+                ));
+                next_tab_index = if next_tab_index == 1 { 2 } else { 1 };
+            }
+
+            let env_senior = ronin_hive::actor::Envelope {
+                message_id: uuid::Uuid::new_v4(),
+                sender: "System".to_string(),
+                recipient: "SeniorGemini".to_string(),
+                payload: serde_json::to_string(&ronin_hive::messages::HiveMessage::Objective(current_objective.clone()))?,
+            };
+
+            let env_junior = ronin_hive::actor::Envelope {
+                message_id: uuid::Uuid::new_v4(),
+                sender: "System".to_string(),
+                recipient: "JuniorGemini".to_string(),
+                payload: serde_json::to_string(&ronin_hive::messages::HiveMessage::Objective(current_objective.clone()))?,
+            };
+
+            // Suspend spinner safely so prompt isn't jumbled
+            spinner.suspend(|| {});
+
+            // Fan Out: Run parallel agents
+            let (res_senior, res_junior) = if let Some(ref mut j) = junior_actor {
+                tokio::join!(senior_actor.receive(env_senior), j.receive(env_junior))
+            } else {
+                let r = senior_actor.receive(env_senior).await;
+                (r, Ok(None))
+            };
+
+            let out_s = extract_output(res_senior?);
+            let out_j = extract_output(res_junior?);
+
+            if out_s.contains("[TASK_COMPLETE]") || out_j.contains("[TASK_COMPLETE]") {
+                info!("[Runner] Task Complete Signal Received.");
+                final_response = format!("Senior:\n{}\n\nJunior:\n{}", out_s, out_j);
+                break;
+            }
+
+            // Fan In: Merge Consensus
+            if let Some(ref mut _j) = junior_actor {
+                info!("[Runner] Consolidating Dual-Observer Reports...");
+                let merged = consensus_actor.merge_observations(&out_s, &out_j).await;
+                
+                // Overwrite the timeline file with pure chronological reality
+                let timeline_path = runner_cfg.cwd.join(".ronin").join("timeline.md");
+                let mut current_timeline = String::new();
+                if timeline_path.exists() {
+                    current_timeline = tokio::fs::read_to_string(&timeline_path).await.unwrap_or_default();
+                }
+                current_timeline.push_str(&format!("\n\n-- TURN {} --\n{}", step_count, merged));
+                let _ = tokio::fs::write(&timeline_path, current_timeline).await;
+                
+                // Assign new unified reality as the objective context for next turn
+                current_objective = format!("Local System Unified Context:\n{}", merged);
+            } else {
+                // Turn 1 complete, only senior acted. Just log it.
+                let timeline_path = runner_cfg.cwd.join(".ronin").join("timeline.md");
+                let logs = format!("\n\n-- TURN {} --\nObserver A Initial Report:\n{}", step_count, out_s);
+                let _ = tokio::fs::write(&timeline_path, logs).await;
+                current_objective = format!("Local System Unified Context:\n{}", out_s);
+                
+                // Boot Junior!
+                info!("[Runner] Booting Junior Observer for Turn 2...");
+                junior_actor = Some(ronin_hive::roles::stealth_gemini::StealthWebActor::new(
+                    uuid::Uuid::new_v4(),
+                    self.config.sandbox.allow_filesystem_escape,
+                    runner_cfg.cwd.clone(),
+                    self.config.agent.primary_model.clone(),
+                    self.config.providers.ollama.host.clone(),
+                    self.config.providers.ollama.port,
+                    self.config.agent.system_language == ronin_core::domain::config::SystemLanguage::Japanese,
+                    ronin_hive::roles::stealth_gemini::SystemRole::JuniorObserver,
+                    next_tab_index,
+                ));
+                next_tab_index = if next_tab_index == 1 { 2 } else { 1 };
             }
         }
         
@@ -201,6 +395,15 @@ impl AgentRunner {
                 let mut prompt = ronin_diff_ux::tui::approval_prompt::ApprovalSession::new();
 
                 for path in modified {
+                    // Check if file was actually modified DURING this run
+                    if let Ok(meta) = std::fs::metadata(&path) {
+                        if let Ok(mod_time) = meta.modified() {
+                            if mod_time < run_start_time {
+                                continue;
+                            }
+                        }
+                    }
+
                     let relative = path.strip_prefix(&runner_cfg.cwd).unwrap_or(&path);
                     if let Ok(out) = std::process::Command::new("git")
                         .args(["show", &format!("HEAD:{}", relative.display())])

@@ -155,6 +155,18 @@ pub async fn execute(args: InitArgs) -> Result<()> {
         .default(!args.no_seed)
         .interact()?;
 
+    // Interactive Wizard for Global Access Scope
+    let scope_options = &[
+        "Project Only Scope (Safe - sandbox restricted to current dir)",
+        "Global OS Access Scope (God Mode - AI has full access to the Mac)",
+    ];
+    let selected_scope_idx = Select::new()
+        .with_prompt("Select Agent File System Access Policy")
+        .items(scope_options)
+        .default(0)
+        .interact()?;
+    let allow_escape = selected_scope_idx == 1;
+
     println!("\n{} Applying configuration...", style("🔨").magenta());
 
     // Create directory structure
@@ -193,9 +205,9 @@ front_max_tokens = 4096
 
 [sandbox]
 timeout_secs   = 60
-allow_escape   = false
+allow_escape   = {}
 "#,
-        selected_model, lang, cloud_fallback
+        selected_model, lang, cloud_fallback, allow_escape
     );
     tokio::fs::write(root.join("ronin.toml"), &config_content).await?;
     println!("  {} Created {}", style("├─").dim(), style("ronin.toml").green());
