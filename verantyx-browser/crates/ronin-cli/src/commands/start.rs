@@ -75,7 +75,7 @@ pub async fn execute(args: StartArgs) -> Result<()> {
         .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
 
     loop {
-        print!("{} {} ", style("⚡ ronin").cyan().bold(), style("›").dim());
+        print!("{} {} ", style("[Verantyx] ⚡").cyan().bold(), style("❯").dim());
         std::io::stdout().flush().ok();
 
         let mut input = String::new();
@@ -95,7 +95,7 @@ pub async fn execute(args: StartArgs) -> Result<()> {
         }
 
         if matches!(task.as_str(), "exit" | "quit" | "/exit") {
-            println!("{}", style("Ronin signing off. Stay dangerous.").dim());
+            println!("{}", style("[SYSTEM] Terminating session. Connection closed.").dim());
             break;
         }
 
@@ -131,17 +131,20 @@ pub async fn execute(args: StartArgs) -> Result<()> {
 
 fn print_status(model: &str, hitl: bool, cwd: &PathBuf) {
     println!();
-    println!("{}", style("System Status").bold());
+    println!("{}", style("[VERANTYX_STATUS]").bold());
     println!(
-        "  Model   : {}",
+        "  {} : {}",
+        style("CORE_SLM").dim(),
         style(model).green()
     );
     println!(
-        "  HITL    : {}",
-        if hitl { style("on").green() } else { style("off").yellow() }
+        "  {} : {}",
+        style("HITL_MODE").dim(),
+        if hitl { style("ACTIVE").green() } else { style("DISABLED").red() }
     );
     println!(
-        "  CWD     : {}",
+        "  {} : {}",
+        style("TARGET_DIR").dim(),
         style(cwd.display()).dim()
     );
     println!();

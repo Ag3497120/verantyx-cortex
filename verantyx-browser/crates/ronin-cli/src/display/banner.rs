@@ -23,23 +23,23 @@ pub fn print_banner() {
 pub fn print_config_summary(model: &str, hitl: bool, lang: &str, steps: u32) {
     println!("{}", style("─".repeat(56)).dim());
     println!(
-        "  {:<14} {}",
-        style("Model:").dim(),
+        "  {:<18} {}",
+        style("[CORE_SLM]").dim(),
         style(model).green().bold()
     );
     println!(
-        "  {:<14} {}",
-        style("HITL:").dim(),
-        if hitl { style("enabled").green() } else { style("disabled").yellow() }
+        "  {:<18} {}",
+        style("[HUMAN_IN_THE_LOOP]").dim(),
+        if hitl { style("ACTIVE").green() } else { style("DISABLED").red() }
     );
     println!(
-        "  {:<14} {}",
-        style("Language:").dim(),
+        "  {:<18} {}",
+        style("[SYS_LANG]").dim(),
         style(lang).cyan()
     );
     println!(
-        "  {:<14} {}",
-        style("Max Steps:").dim(),
+        "  {:<18} {}",
+        style("[MAX_RECURSION]").dim(),
         style(steps.to_string()).white()
     );
     println!("{}", style("─".repeat(56)).dim());
@@ -57,7 +57,7 @@ pub fn print_step_header(step: u32, total: u32, description: &str) {
 
 pub fn print_observation(observation: &str) {
     println!();
-    println!("{}", style("╔═ OBSERVATION ══════════════════════════════════").dim());
+    println!("{}", style("╔═ [OBSERVATION_DATA] ═══════════════════════════").dim());
     for line in observation.lines().take(40) {
         println!("{} {}", style("║").dim(), line);
     }
@@ -65,13 +65,13 @@ pub fn print_observation(observation: &str) {
 }
 
 pub fn print_success(message: &str) {
-    println!("\n{} {}", style("✅").green(), style(message).bold());
+    println!("\n{} {}", style("[OK]").green().bold(), style(message).bold());
 }
 
 pub fn print_warning(message: &str) {
-    println!("\n{} {}", style("⚠️ ").yellow(), style(message).yellow());
+    println!("\n{} {}", style("[WARN]").yellow().bold(), style(message).yellow());
 }
 
 pub fn print_error(message: &str) {
-    println!("\n{} {}", style("❌").red(), style(message).red().bold());
+    println!("\n{} {}", style("[FAIL]").red().bold(), style(message).red().bold());
 }

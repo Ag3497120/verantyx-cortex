@@ -3,7 +3,7 @@ use tracing_subscriber::FmtSubscriber;
 use anyhow::Result;
 
 pub fn init_telemetry(verbose: bool) -> Result<()> {
-    let level = if verbose { Level::DEBUG } else { Level::INFO };
+    let level = if verbose { Level::DEBUG } else { Level::WARN };
     
     // Instead of raw printf, we use structured telemetry logging.
     // In the future this can be multiplexed to OpenTelemetry (OTLP) gRPC endpoints.

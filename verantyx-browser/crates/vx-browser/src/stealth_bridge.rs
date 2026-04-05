@@ -90,6 +90,16 @@ pub fn run_event_loop(visible: bool) -> anyhow::Result<()> {
                     markdown: Some(markdown),
                 };
                 println!("{}", serde_json::to_string(&resp).unwrap());
+            } else if body.starts_with("RAW_DOM:") {
+                let html = &body[8..];
+                let resp = BridgeResponse {
+                    status: "raw_dom".into(),
+                    message: Some(html.to_string()),
+                    url: None,
+                    title: None,
+                    markdown: None,
+                };
+                println!("{}", serde_json::to_string(&resp).unwrap());
             } else if body.starts_with("HITL_DONE:") {
                 let html = &body[10..];
                 let markdown = html2md::parse_html(html);
@@ -100,6 +110,26 @@ pub fn run_event_loop(visible: bool) -> anyhow::Result<()> {
                     url: None,
                     title: None,
                     markdown: Some(markdown),
+                };
+                println!("{}", serde_json::to_string(&resp).unwrap());
+            } else if body.starts_with("EVAL_RES:") {
+                let res = &body[9..];
+                let resp = BridgeResponse {
+                    status: "eval_ok".into(),
+                    message: Some(res.to_string()),
+                    url: None,
+                    title: None,
+                    markdown: None,
+                };
+                println!("{}", serde_json::to_string(&resp).unwrap());
+            } else if body.starts_with("EVAL_ERR:") {
+                let err = &body[9..];
+                let resp = BridgeResponse {
+                    status: "eval_err".into(),
+                    message: Some(err.to_string()),
+                    url: None,
+                    title: None,
+                    markdown: None,
                 };
                 println!("{}", serde_json::to_string(&resp).unwrap());
             }
@@ -131,6 +161,33 @@ pub fn run_event_loop(visible: bool) -> anyhow::Result<()> {
                             })();
                         "#;
                         let _ = webview.evaluate_script(js);
+                    }
+                    "get_raw_page" => {
+                        let js = r#"
+                            (function() {
+                                let html = document.documentElement.outerHTML;
+                                window.ipc.postMessage('RAW_DOM:' + html);
+                            })();
+                        "#;
+                        let _ = webview.evaluate_script(js);
+                    }
+                    "eval_js" => {
+                        // Evaluate arbitrary JavaScript for Native Loop Driving
+                        if let Some(script) = cmd.text {
+                            let wrapped_js = format!(r#"
+                                (function() {{
+                                    try {{
+                                        let res = (function() {{ {} }})();
+                                        if (res !== undefined) {{
+                                            window.ipc.postMessage('EVAL_RES:' + res);
+                                        }}
+                                    }} catch(e) {{
+                                        window.ipc.postMessage('EVAL_ERR:' + e.toString());
+                                    }}
+                                }})();
+                            "#, script);
+                            let _ = webview.evaluate_script(&wrapped_js);
+                        }
                     }
                     "quit" => {
                         *control_flow = ControlFlow::Exit;

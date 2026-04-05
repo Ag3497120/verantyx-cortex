@@ -134,14 +134,14 @@ impl AgentRunner {
         let meta_prompt = format!("
 You are the Ronin Intent Router. 
 User Prompt: {}
-Decompose the context and purpose. If the prompt asks to 'analyze', 'look into', 'investigate' or implies scanning the project, generate a dedicated system prompt for the Local SLM to analyze the file hierarchy (PureThrough mode), AND a dedicated execution prompt for the Commander AI (Gemini) that will run afterwards.
+Decompose the context and purpose. If the prompt asks to 'analyze', 'look into', 'investigate' or implies scanning the project, generate a dedicated system prompt for the Local SLM to analyze the file hierarchy (PureThrough mode), AND a contextual framework for the Observer AI (Gemini) that will run afterwards. NOTE: Gemini is ONLY an observer, it DOES NOT run commands. DO NOT generate git, shell, or execution commands for Gemini!
 {}
 Output ONLY valid JSON matching this schema:
 {{
     \"needs_mapping\": true,
     \"target_directory\": \"/path/to/extracted/absolute/directory/if/present/in/prompt (optional)\",
     \"local_analysis_prompt\": \"Prompt telling local SLM how to summarize the repository tree\",
-    \"gemini_directive_prompt\": \"Distilled execution instructions for Gemini\"
+    \"gemini_directive_prompt\": \"Context instructions for Gemini to observe the objective. Do NOT include shell commands.\"
 }}
 If no mapping is needed, set needs_mapping to false.
 ", runner_cfg.task, lang_desc);
@@ -177,11 +177,11 @@ If no mapping is needed, set needs_mapping to false.
                     let p = std::path::Path::new(&target_dir);
                     if p.is_absolute() && p.exists() {
                         runner_cfg.cwd = p.to_path_buf();
-                        println!("{} Redirected operational context to: {}", console::style("📂").magenta(), target_dir);
+                        println!("{} Redirecting context to: {}", console::style("[SYSTEM]").dim(), target_dir);
                     }
                 }
                 if route.needs_mapping {
-                    println!("{} Intent [MAP_AND_EXECUTE] Detected!", style("⚡").cyan());
+                    println!("{} Intent [MAP_AND_EXECUTE] Detected.", style("[SYSTEM]").dim());
                     
                     let mut repo_map = "No Map".to_string();
                     if let Ok(generator) = ronin_repomap::RepoMapGenerator::new(&runner_cfg.cwd).generate() {
@@ -189,7 +189,7 @@ If no mapping is needed, set needs_mapping to false.
                     }
                     
                     let analysis_prompt = route.local_analysis_prompt.unwrap_or_else(|| "Summarize this repo.".to_string());
-                    println!("{} Local SLM Executing PureThrough Analysis...", style("🔍").yellow());
+                    println!("{} Executing PureThrough Analysis...", style("[SLM]").cyan());
                     
                     let pt_req = InferenceRequest {
                         model: model.clone(),
@@ -207,16 +207,17 @@ If no mapping is needed, set needs_mapping to false.
                         let _ = tokio::fs::create_dir_all(&memory_dir).await;
                         let out_file = memory_dir.join("purethrough_map.md");
                         let pt_content = format!("# PureThrough Spatial Map\n\n{}\n\n## Auto-Generated AST Map\n```\n{}\n```", pt_res, repo_map);
-                        let _ = tokio::fs::write(&out_file, pt_content.clone()).await;
-                        println!("{} Spatial Map anchored into Memory!", style("✅").green());
+                        let _ = tokio::fs::write(&out_file, pt_content).await;
+                        println!("{} Spatial Map anchored into Memory.", style("[SYSTEM]").green().bold());
 
-                        // Automatically inject the map into Gemini's objective so it doesn't have to read it manually
-                        final_objective = format!("{}\n\n[SYSTEM REPOSITORY MAP]\n```\n{}\n```", route.gemini_directive_prompt.unwrap_or(final_objective), pt_content);
+                        let pt_distilled = format!("# ローカルLLMのリポジトリ分析結果\n\n{}", pt_res);
+                        // Automatically inject the distilled map into Gemini's objective
+                        final_objective = format!("{}\n\n[SYSTEM REPOSITORY MAP]\n```\n{}\n```", route.gemini_directive_prompt.unwrap_or(final_objective), pt_distilled);
                     } else {
                         final_objective = route.gemini_directive_prompt.unwrap_or(final_objective);
                     }
                 } else {
-                    println!("{} Intent [EXECUTE_DIRECTLY] Detected.", style("⚡").blue());
+                    println!("{} Intent [EXECUTE_DIRECTLY] Detected.", style("[SYSTEM]").dim());
                     final_objective = route.gemini_directive_prompt.unwrap_or(final_objective);
                 }
             } else {
@@ -228,7 +229,7 @@ If no mapping is needed, set needs_mapping to false.
 
         // 5. Initialize Multi-Agent Hive Network
         info!("[Runner] Booting Ronin Multi-Agent Hive System...");
-        let spinner = Self::make_spinner("Coordinating Agent Hive Network…");
+        let spinner = Self::make_spinner("[SYSTEM] Synchronizing Autonomous Hive Network...");
         
         let mut commander_actor = ronin_hive::roles::commander::CommanderActor;
         let mut planner_actor = ronin_hive::roles::planner::PlannerActor::new(&self.config.memory.root_dir);
@@ -315,16 +316,17 @@ If no mapping is needed, set needs_mapping to false.
                 payload: serde_json::to_string(&ronin_hive::messages::HiveMessage::Objective(current_objective.clone()))?,
             };
 
-            // Suspend spinner safely so prompt isn't jumbled
-            spinner.suspend(|| {});
+            // Stop spinner permanently before entering concurrent TUI interaction steps
+            spinner.finish_and_clear();
 
-            // Fan Out: Run parallel agents
-            let (res_senior, res_junior) = if let Some(ref mut j) = junior_actor {
-                tokio::join!(senior_actor.receive(env_senior), j.receive(env_junior))
+            // Run agents sequentially to avoid CLI Mutex deadlocks during human-in-the-loop interactions
+            let res_senior = senior_actor.receive(env_senior).await;
+            let res_junior = if let Some(ref mut j) = junior_actor {
+                j.receive(env_junior).await
             } else {
-                let r = senior_actor.receive(env_senior).await;
-                (r, Ok(None))
+                Ok(None)
             };
+            let (res_senior, res_junior) = (res_senior, res_junior);
 
             let out_s = extract_output(res_senior?);
             let out_j = extract_output(res_junior?);
