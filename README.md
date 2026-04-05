@@ -94,6 +94,20 @@ cargo build --release
 ./target/release/ronin start
 ```
 
+---
+
+## 🙏 Inspiration & Acknowledgements
+
+Ronin stands on the shoulders of giants. We deeply respect the pioneers of the open-source agentic community and have synthesized their philosophies into a completely unified, local-first Rust OS:
+
+* **[OpenClaw](https://github.com/openclaw/openclaw) & SWE-agent:** The foundational inspiration for our autonomous Reviewer loops and terminal Sandbox isolation.
+* **[Aider](https://github.com/paul-gauthier/aider) & Cline:** The visual Git Diff-UX pipeline (`SEARCH/REPLACE` patching) is heavily inspired by their brilliant approach to Human-in-the-Loop editing.
+* **[Fabric](https://github.com/danielmiessler/fabric):** We adopted their minimalist Unix-pipeline philosophy, making Ronin native and composable to standard terminal workflows.
+
+*We thank these projects for showing the path. Ronin takes the torch to the local, API-free future.*
+
+---
+
 ### Community
 See `CONTRIBUTING.md` for guidelines, maintainers, and how to submit PRs. Hackers welcome. 🤖
 
