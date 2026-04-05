@@ -38,6 +38,10 @@ pub struct RunArgs {
     /// Output result as JSON (for CI/script integration)
     #[arg(long)]
     pub json: bool,
+
+    /// Force execution out to the Stealth Web Gemini agent instead of local models
+    #[arg(long)]
+    pub stealth: bool,
 }
 
 pub async fn execute(args: RunArgs) -> Result<()> {
@@ -73,6 +77,7 @@ pub async fn execute(args: RunArgs) -> Result<()> {
         task: args.task,
         model_override: args.model,
         hitl_override: Some(!args.no_hitl),
+        force_stealth: args.stealth,
         cwd,
         max_steps: args.max_steps,
     }).await?;
