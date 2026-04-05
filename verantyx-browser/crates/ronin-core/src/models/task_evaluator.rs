@@ -27,15 +27,33 @@ impl TaskContext {
         let mut domain = TaskDomain::Trivial;
         let mut req_tier = 1;
 
+        if objective.starts_with("[STEALTH_FORCE]") {
+            return Self {
+                domain: TaskDomain::Reasoning,
+                payload: objective.strip_prefix("[STEALTH_FORCE] ").unwrap_or(objective).to_string(),
+                required_tier_numeric: 3,
+            };
+        }
+
+        // English Heuristics
         if text.contains("research") || text.contains("analyze") || text.contains("scrape") {
             domain = TaskDomain::WebScraping;
             req_tier = 2; // Usually needs middle capability to sift through DOM
         } else if text.contains("refactor") || text.contains("rewrite") || text.contains("code") {
             domain = TaskDomain::Coding;
             req_tier = 3; // Coding heavy tasks require high tier
-        } else if text.contains("plan") || text.contains("design") {
+        } else if text.contains("plan") || text.contains("design") || text.contains("architect") {
             domain = TaskDomain::Planning;
             req_tier = 3; // High reasoning required
+        }
+        
+        // Japanese Heuristics
+        if text.contains("調査") || text.contains("検索") || text.contains("スクレイピング") || text.contains("分析") {
+            domain = TaskDomain::WebScraping;
+            req_tier = 2;
+        } else if text.contains("設計") || text.contains("アーキテクチャ") || text.contains("構成") || text.contains("複雑") || text.contains("リファクタリング") {
+            domain = TaskDomain::Planning;
+            req_tier = 3; 
         }
 
         Self {

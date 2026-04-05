@@ -32,6 +32,10 @@ pub struct StartArgs {
     /// Override system language (en|ja)
     #[arg(long, value_name = "LANG")]
     pub lang: Option<String>,
+
+    /// Force execution out to the Stealth Web Gemini agent instead of local models
+    #[arg(long)]
+    pub stealth: bool,
 }
 
 pub async fn execute(args: StartArgs) -> Result<()> {
@@ -81,8 +85,14 @@ pub async fn execute(args: StartArgs) -> Result<()> {
             Err(_) => break,
         }
 
-        let task = input.trim().to_string();
+        let mut is_stealth = args.stealth;
+        let mut task = input.trim().to_string();
         if task.is_empty() { continue; }
+
+        if task.starts_with("/stealth ") {
+            is_stealth = true;
+            task = task.strip_prefix("/stealth ").unwrap().trim().to_string();
+        }
 
         if matches!(task.as_str(), "exit" | "quit" | "/exit") {
             println!("{}", style("Ronin signing off. Stay dangerous.").dim());
@@ -99,6 +109,7 @@ pub async fn execute(args: StartArgs) -> Result<()> {
             task: task.clone(),
             model_override: Some(model.clone()),
             hitl_override: Some(hitl),
+            force_stealth: is_stealth,
             cwd: cwd.clone(),
             max_steps: None,
         }).await?;

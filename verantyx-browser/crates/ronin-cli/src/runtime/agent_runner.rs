@@ -46,6 +46,7 @@ pub struct RunnerConfig {
     pub task: String,
     pub model_override: Option<String>,
     pub hitl_override: Option<bool>,
+    pub force_stealth: bool,
     pub cwd: PathBuf,
     pub max_steps: Option<u32>,
 }
@@ -129,11 +130,16 @@ impl AgentRunner {
         
         let mut commander_actor = ronin_hive::roles::commander::CommanderActor;
 
+        let mut task_objective = runner_cfg.task.clone();
+        if runner_cfg.force_stealth {
+            task_objective = format!("[STEALTH_FORCE] {}", task_objective);
+        }
+
         let task_envelope = ronin_hive::actor::Envelope {
             message_id: uuid::Uuid::new_v4(),
             sender: "User_CLI".to_string(),
             recipient: "Commander".to_string(),
-            payload: serde_json::to_string(&ronin_hive::messages::HiveMessage::Objective(runner_cfg.task.clone()))?,
+            payload: serde_json::to_string(&ronin_hive::messages::HiveMessage::Objective(task_objective))?,
         };
 
         // 5. Dispatch task directly into CommanderActor
