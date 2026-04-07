@@ -3,6 +3,7 @@ pub mod hive;
 pub mod roles;
 pub mod messages;
 pub mod error;
+pub mod config;
 
 pub use actor::{Actor, Envelope};
 pub use hive::HiveMind;

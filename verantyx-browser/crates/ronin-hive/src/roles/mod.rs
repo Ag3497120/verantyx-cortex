@@ -5,3 +5,5 @@ pub mod reviewer;
 pub mod stealth_gemini;
 pub mod consensus;
 pub mod safari_evaluator;
+pub mod symbiotic_macos;
+pub mod supervisor_gemini;

@@ -52,7 +52,17 @@ async fn main() -> anyhow::Result<()> {
         _ => panic!("Expected SpawnSubAgent message!"),
     };
 
-    let mut ephemeral_worker = StealthWebActor::new(subagent_id);
+    let mut ephemeral_worker = StealthWebActor::new(
+        subagent_id,
+        true, 
+        std::env::current_dir().unwrap(), 
+        "gemma-2-test".to_string(), 
+        "Hybrid Auto Testing Mode".to_string(), 
+        5, 
+        false, 
+        ronin_hive::roles::stealth_gemini::SystemRole::SeniorObserver, 
+        1
+    );
 
     // Fake exactly 5 turns to trigger the kill switch!
     for turn in 1..=6 {

@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::io::{self, BufRead};
+use std::io::{self, BufRead, Write};
 use tao::{
     event::{Event, WindowEvent},
     event_loop::{ControlFlow, EventLoop, EventLoopBuilder, EventLoopProxy},
@@ -89,7 +89,7 @@ pub fn run_event_loop(visible: bool) -> anyhow::Result<()> {
                     title: None,
                     markdown: Some(markdown),
                 };
-                println!("{}", serde_json::to_string(&resp).unwrap());
+                println!("{}", serde_json::to_string(&resp).unwrap()); std::io::stdout().flush().unwrap();
             } else if body.starts_with("RAW_DOM:") {
                 let html = &body[8..];
                 let resp = BridgeResponse {
@@ -99,7 +99,7 @@ pub fn run_event_loop(visible: bool) -> anyhow::Result<()> {
                     title: None,
                     markdown: None,
                 };
-                println!("{}", serde_json::to_string(&resp).unwrap());
+                println!("{}", serde_json::to_string(&resp).unwrap()); std::io::stdout().flush().unwrap();
             } else if body.starts_with("HITL_DONE:") {
                 let html = &body[10..];
                 let markdown = html2md::parse_html(html);
@@ -111,7 +111,7 @@ pub fn run_event_loop(visible: bool) -> anyhow::Result<()> {
                     title: None,
                     markdown: Some(markdown),
                 };
-                println!("{}", serde_json::to_string(&resp).unwrap());
+                println!("{}", serde_json::to_string(&resp).unwrap()); std::io::stdout().flush().unwrap();
             } else if body.starts_with("EVAL_RES:") {
                 let res = &body[9..];
                 let resp = BridgeResponse {
@@ -121,7 +121,7 @@ pub fn run_event_loop(visible: bool) -> anyhow::Result<()> {
                     title: None,
                     markdown: None,
                 };
-                println!("{}", serde_json::to_string(&resp).unwrap());
+                println!("{}", serde_json::to_string(&resp).unwrap()); std::io::stdout().flush().unwrap();
             } else if body.starts_with("EVAL_ERR:") {
                 let err = &body[9..];
                 let resp = BridgeResponse {
@@ -131,13 +131,13 @@ pub fn run_event_loop(visible: bool) -> anyhow::Result<()> {
                     title: None,
                     markdown: None,
                 };
-                println!("{}", serde_json::to_string(&resp).unwrap());
+                println!("{}", serde_json::to_string(&resp).unwrap()); std::io::stdout().flush().unwrap();
             }
         })
         .build(&window)?;
 
     // Acknowledge readiness to TypeScript Orchestrator
-    println!(r#"{{"status":"ok","message":"ready"}}"#);
+    println!(r#"{{"status":"ok","message":"ready"}}"#); std::io::stdout().flush().unwrap();
 
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Wait;
@@ -149,7 +149,7 @@ pub fn run_event_loop(visible: bool) -> anyhow::Result<()> {
                         if let Some(url) = cmd.url {
                             webview.load_url(&url);
                             let resp = BridgeResponse { status: "ok".into(), message: Some("Navigated".into()), url: None, title: None, markdown: None };
-                            println!("{}", serde_json::to_string(&resp).unwrap());
+                            println!("{}", serde_json::to_string(&resp).unwrap()); std::io::stdout().flush().unwrap();
                         }
                     }
                     "get_page" => {
