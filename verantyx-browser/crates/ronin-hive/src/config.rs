@@ -1,6 +1,5 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use tracing::info;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct PersonaConfig {

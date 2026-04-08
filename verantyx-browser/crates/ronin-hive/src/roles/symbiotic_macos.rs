@@ -3,7 +3,7 @@
 //! Implements absolute OS spatial tracking and CoreGraphics biometric mouse drift.
 
 use tokio::process::Command;
-use tracing::{info, warn};
+use tracing::info;
 use rand::Rng;
 
 pub struct SafariBounds {
@@ -210,26 +210,38 @@ impl SymbioticMacOS {
         Ok(())
     }
 
-    /// Explicitly opens a new Safari tab configured as a "Mini-Panel" in the corner of the screen.
-    /// It always creates a new tab, intentionally leaving the previous (Senior/Apprentice) tabs open as a historical ledger.
-    pub async fn open_safari_mini_panel(url: &str) -> anyhow::Result<()> {
-        let script = format!(
-            r#"
+    /// Dynamically determines which of the 3 tiled Safari windows to focus based on their spatial bounds.
+    pub async fn focus_safari_panel(position: &str) -> anyhow::Result<()> {
+        let condition = match position {
+            "left"   => "if xPos < colWidth then",
+            "middle" => "if xPos >= colWidth and xPos < (colWidth * 2) - 50 then",
+            "right"  => "if xPos >= (colWidth * 2) - 50 then",
+            _        => "if xPos < colWidth then",
+        };
+        
+        let script = format!(r#"
+            tell application "Finder"
+                set bnd to bounds of window of desktop
+                set screenWidth to item 3 of bnd
+            end tell
+            set colWidth to (screenWidth / 3) as integer
+            
             tell application "Safari"
                 activate
-                if (count of windows) = 0 then
-                    make new document
-                    set URL of front document to "{}"
-                else
-                    tell front window
-                        make new tab with properties {{URL:"{}"}}
-                        set current tab to last tab
-                    end tell
-                end if
-                set bounds of front window to {{50, 50, 600, 850}}
-            end tell"#,
-            url, url
-        );
+                set winList to every window
+                repeat with w in winList
+                    try
+                        set bnd to bounds of w
+                        set xPos to item 1 of bnd
+                        {}
+                            set index of w to 1
+                            exit repeat
+                        end if
+                    end try
+                end repeat
+            end tell
+        "#, condition);
+
         Command::new("osascript").arg("-e").arg(&script).output().await?;
         Ok(())
     }

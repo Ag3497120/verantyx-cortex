@@ -14,6 +14,7 @@ use vx_render::ai_renderer::AiRenderer;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum SystemRole {
+    ArchitectWorker,
     SeniorObserver,
     JuniorObserver,
 }
@@ -155,6 +156,36 @@ impl Actor for StealthWebActor {
                 let persona_traits = cfg.persona.personality;
 
                 let system_prompt = match self.role {
+                    SystemRole::ArchitectWorker => format!("
+【AGENT PERSONA】
+Name: {persona_name}
+Personality: {persona_traits}
+あなたの思考プロセス、言葉遣い、そして分析結果はすべてこの人格定義の制約を受けます。
+
+【SYSTEM: Architect Worker】
+あなたはユーザーの要求を分析し、解決策を設計する「アーキテクト」ですが、**あなた自身はパソコンを直接操作したり、ファイルを読み書きしたりする権限や能力を一切持っていません。**
+ファイルを見たい、コピーしたい、編集したい、コマンドを実行したいという場合は、必ず外部の実行担当エージェント（Qwen）に「指示」として投げる必要があります。
+
+【📝 ミッションと出力ルール（超重要）】
+あなたは必ず、以下の３つのプレフィックス（接頭辞）のいずれかを**出力の先頭行**に配置してください。それ以外の会話や挨拶は厳禁です。
+もしプレフィックスを間違えると、システムはあなたの意図とは全く違う動作をして破綻します。
+
+1. `編集中`
+   - **実行が必要な場合（ファイル読込/書込/コピー/コマンド実行）は、いかなる理由があっても必ずこれを選択してください。**
+   - Qwenに実行させるためのコードやコマンドをこれに続けて書きます。
+2. `そのまま出力`
+   - ファイルの編集が必要な場合において、特定の情報を**一切の書式や内容の欠落なく**そのまま出す必要がある場合に使用します。
+3. `最終回答`
+   - Qwenによる出力（分析結果や編集の完了報告）を受け取った後、すべての作業が完了し、ユーザーに見せるべき最終的な報告を出す場合に使います。
+4. `最終回答仮`
+   - ユーザーの要求が単なる「知識系・抽象的な質問」であり、**Qwenを使ってファイルを触ったりコマンドを実行したりする必要が100%ない場合**（1ターンで完結する質問）にのみ使用します。
+
+【重要】
+- ユーザーに対する挨拶や余計な解説は不要ですが、**「このコマンドや編集を何のために行うのか」という【Qwenへの日本語の目的・指示（コンテキスト）】**は、コマンドの前に必ず自然言語で記述してください。簡潔すぎるとコンテキストを失いQwenが混乱します。
+- 必ず上記いずれかのプレフィックスを先頭に記載してください。
+
+ユーザーの要求: {}
+", objective),
                     SystemRole::SeniorObserver => format!("
 【AGENT PERSONA】
 Name: {persona_name}
@@ -354,9 +385,12 @@ Personality: {persona_traits}
                     info!("[StealthGemini-{}] Preparing manual interaction flow #{}...", self.id, loop_counter);
                     
                         let display_role = match self.role {
+                            SystemRole::ArchitectWorker => "Architect Worker",
                             SystemRole::SeniorObserver => "Senior Observer",
                             SystemRole::JuniorObserver => "Junior Memory Sync",
                         };
+
+                    let mut last_response_rendered = String::new();
 
                     {
                         // Secure global input lock to prevent Safari Tab & Crossterm race conditions during parallel processing
@@ -413,7 +447,7 @@ Personality: {persona_traits}
 
                             println!("\n{}", console::style("👉 クリップボードの準備が完了しました。送信先のブラウザを開きますか？").cyan().bold());
                             
-                            let selections = &[" Safariを開いて貼り付ける (Cmd+V)", " 再度クリップボードにコピーする"];
+                            let selections = &[" コピー完了・フォーカス移動待ち", " 再度クリップボードにコピーする"];
                             let selection = dialoguer::Select::new()
                                 .with_prompt("どうしますか？ (矢印キーで選択)")
                                 .default(0)
@@ -422,151 +456,48 @@ Personality: {persona_traits}
                                 .unwrap();
 
                             if selection == 0 {
-                                println!("{}", console::style("🚀 クリップボードにロードしました！フローティング・ミニパネル（Safari）でCmd+Vを押して送信してください！").green());
-                                let _ = crate::roles::symbiotic_macos::SymbioticMacOS::open_safari_mini_panel("https://gemini.google.com/app").await;
-                                tokio::time::sleep(tokio::time::Duration::from_millis(1500)).await;
+                                println!("{}", console::style("🚀 クリップボードにロードしました！ 【左側のワーカー用ウィンドウ】 にフォーカスを移動しました。Cmd+Vを押して送信してください！").green());
+                                let _ = crate::roles::symbiotic_macos::SymbioticMacOS::focus_safari_panel("left").await;
+                                tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
                             } else {
                                 println!("{}", console::style("🔄 [もう一度クリップボードに保存] を選択しました。").yellow());
                                 continue;
                             }
 
-                            // 4. Verification Check
+                            // 3. User interaction prompts
                             let expected_sample = payload_str.chars().take(80).collect::<String>();
-                            println!("\n{} {}", console::style("↻ [AI_SYS]").yellow(), console::style(format!("送信検知を待機中... ミニパネルの対象タブを開き、[ Cmd + V ] で貼り付けて送信してください。 (Expected: {}...)", expected_sample.replace('\n', " "))).dim());
+                            println!("\n{} {}", console::style("↻ [AI_SYS]").yellow(), console::style(format!("対象ブラウザタブを開き、[ Cmd + V ] で貼り付けて送信してください。(Expected snippet: {}...)", expected_sample.replace('\n', " "))).dim());
+                            let selections_confirm = &[" コピー完了。抽出を開始する"];
+                            let _ = dialoguer::Select::new()
+                                .with_prompt("どうしますか？ (Geminiの出力をCmd+Cでコピーしてから押してください)")
+                                .default(0)
+                                .items(&selections_confirm[..])
+                                .interact()
+                                .unwrap();
 
-                            // Wait for user to paste and submit. Usually takes a human 3-5 seconds.
-                            // The user said: "その貼り付けは文字の入力は考慮されずにエンターとして機能します。" -> CLI input acts as enter
-                            println!("{}", console::style("✔ 送信を完了したら、このCLIに戻ってエンターキーを押してください。").green().bold());
-                            let mut stdin_buf = String::new();
-                            std::io::stdin().read_line(&mut stdin_buf).unwrap();
+                            info!("[StealthGemini-{}] Human-in-the-Loop tracking pipeline successfully engaged.", self.id);
 
-                            // Active App sanity check
-                            if let Some(active_app) = crate::roles::symbiotic_macos::SymbioticMacOS::get_active_app().await {
-                                if !active_app.to_lowercase().contains("terminal") && !active_app.to_lowercase().contains("iterm") && !active_app.to_lowercase().contains("alacritty") && !active_app.to_lowercase().contains("warp") {
-                                    println!("{}", console::style("❌ [警告] CLIがアクティブ状態ではありませんでした。動作異常を防ぐためフローをリセットします。").red());
+                            // 4. Retrieve OS Clipboard as Final Output
+                            let clipboard_content = match crate::roles::symbiotic_macos::SymbioticMacOS::get_clipboard().await {
+                                Ok(c) => c.trim().to_string(),
+                                Err(e) => {
+                                    println!("{}", console::style(format!("❌ クリップボードの読み取りに失敗しました: {}", e)).red());
                                     continue;
                                 }
-                            }
-
-                            // 5. Tamper Verification via vx-browser DOM reading
-                            let diff_js = r#"
-                                (function() {
-                                    let queries = document.querySelectorAll('user-query, .query-content, .user-message');
-                                    if (queries.length > 0) {
-                                        return (queries[queries.length - 1].innerText || "").trim();
-                                    }
-                                    return "NO_QUERIES_FOUND";
-                                })();
-                            "#;
-                            let actual_sent = run_js_async(diff_js.to_string()).await;
-                            let sent_cleaned = actual_sent.replace('\n', "");
-                            let expected_cleaned = payload_str.replace('\n', "");
+                            };
                             
-                            let expected_prefix = expected_cleaned.chars().take(50).collect::<String>();
-                            if sent_cleaned.contains(&expected_prefix) {
-                                println!("{}", console::style("✅ [システム監査通過] クリップボード内容と一致するプロンプト送信を検知しました。Bot監視を突破。").green());
-                                let intent_jcross = format!("@JCross.Intent\nGoal: Prompt_Successfully_Dispatched\nStatus: Success\nTimestamp: {}\n", chrono::Utc::now().to_rfc3339());
-                                let _ = std::fs::write(self.cwd.join(".ronin").join("intent.jcross"), intent_jcross);
-                                break;
-                            } else {
-                                println!("{}", console::style("❌ [監査失敗] 送信内容の不一致、あるいはBot検知によるランダム改ざんを検知しました！").red());
-                                println!("送信されたもの: {}", actual_sent.chars().take(80).collect::<String>());
-                                println!("{}", console::style("🔄 もう一度最初に戻ってクリップボードにセットし直します...").yellow());
+                            if clipboard_content.is_empty() {
+                                println!("{}", console::style("❌ クリップボードが空です。もう一度やり直してください。").red());
                                 tokio::time::sleep(tokio::time::Duration::from_millis(1500)).await;
+                                continue;
                             }
+
+                            last_response_rendered = clipboard_content;
+                            break;
                         }
 
-                        info!("[StealthGemini-{}] Human-in-the-Loop tracking pipeline successfully engaged.", self.id);
+                        info!("[StealthGemini-{}] Human-in-the-Loop Extracted.", self.id);
                     }
-                    
-                    // 4. Ghost Browser Live Monitor Pipeline
-                    println!("\n{}", console::style(format!("╭─ [ {} ] Live Monitor ─────────────────────────────────────", display_role)).magenta().bold());
-                    println!("{} Safariを見なくても、生成の進行状況がここにリアルタイムで出力されます。", console::style("│").magenta().bold());
-                    println!("{} 生成完了（出力ストップ）を確認したら、このターミナルで Enter キー を押して抽出を開始してください。", console::style("│").magenta().bold());
-                    println!("{}", console::style("╰──────────────────────────────────────────────────────────────────").magenta().bold());
-
-                    // Automated generation completeness detection
-                    let mut last_preview_len = 0;
-                    let mut stable_count = 0;
-
-                    let preview_js = r#"
-                        (function(){
-                            let text = document.body.innerText || '';
-                            let parts = text.split('Gemini の回答');
-                            if (parts.length > 1) {
-                                let ans = parts[parts.length - 1].trim();
-                                if (ans.length > 0) return ans;
-                            }
-                            
-                            let blocks = document.querySelectorAll('message-content, .model-response-text');
-                            if (blocks.length > 0) {
-                                return blocks[blocks.length - 1].innerText;
-                            }
-                            
-                            return '... [[AWAITING GEMINI RESPONSE]] ... (未送信の場合は手動で送信ボタンを押してください)';
-                        })();
-                    "#.to_string();
-
-                    let mut last_displayed = String::new();
-                    use std::io::Write;
-                    loop {
-                        tokio::time::sleep(tokio::time::Duration::from_millis(2000)).await;
-                        let current = run_js_async(preview_js.clone()).await;
-                        
-                        if current != last_displayed && !current.is_empty() {
-                            if current.starts_with(&last_displayed) && !last_displayed.is_empty() {
-                                let diff = &current[last_displayed.len()..];
-                                print!("{}", console::style(diff).cyan());
-                            } else {
-                                println!("\n{}", console::style(&current).cyan());
-                            }
-                            let _ = std::io::stdout().flush();
-                            last_displayed = current;
-                            stable_count = 0;
-                        } else if !current.is_empty() && !current.contains("[[AWAITING GEMINI RESPONSE]]") {
-                            stable_count += 1;
-                            if stable_count >= 3 {
-                                println!("\n\n{}", console::style("[AI_SYS] Response generation stabilized. Auto-extracting...").green());
-                                break;
-                            }
-                        }
-                    }
-
-                    println!("\n\n{} Extracting target DOM node...", console::style("[SYS_AUDIT]").dim());
-                    let extract_js = r#"
-                        (function(){
-                            let clone = document.body.cloneNode(true);
-                            let garbage = clone.querySelectorAll('script, style, svg, path, iframe, img, noscript');
-                            for (let i = 0; i < garbage.length; i++) {
-                                garbage[i].remove();
-                            }
-                            return clone.outerHTML;
-                        })();
-                    "#.to_string();
-                    let last_response = run_js_async(extract_js).await;
-
-                    if last_response.is_empty() {
-                        warn!("[StealthGemini-{}] DOM Extraction skipped or failed.", self.id);
-                        final_output = "[SYS: Operation forcibly skipped by operator or DOM was empty.]".to_string();
-                        break;
-                    }
-
-                    // --- NEW: Convert Raw HTML to AI-Friendly Markdown via Custom Engine (`vx-render`) ---
-                    info!("[StealthGemini-{}] Routing extracted DOM to pure-through AI Engine...", self.id);
-                    let doc = Document::parse(&last_response);
-                    let mut renderer = AiRenderer::new();
-                    
-                    let layout = vx_layout::layout_node::LayoutNode::from_dom(&doc.arena, doc.root_id)
-                        .unwrap_or_else(|| vx_layout::layout_node::LayoutNode::new(doc.root_id));
-                    
-                    let ai_page = renderer.render(&doc.arena, &layout, "Gemini Response", "gemini://safari");
-                    
-                    // The Markdown extraction will contain the whole page, but Gemini's last query is usually at the bottom.
-                    // Instead of full page string dump, let's inject exactly what the engine saw as MD.
-                    let clean_markdown = ai_page.render_markdown();
-                    info!("[StealthGemini-{}] Rendered pristine markdown snapshot ({} bytes).", self.id, clean_markdown.len());
-
-                    let last_response_rendered = clean_markdown;
 
                     // 5. Evaluate Response for VX Commands
                     if last_response_rendered.contains("[TASK_COMPLETE]") {
@@ -757,6 +688,7 @@ Personality: {persona_traits}
                 Ok(Some(Envelope {
                     message_id: Uuid::new_v4(),
                     sender: match self.role {
+                        SystemRole::ArchitectWorker => "StealthGeminiWorker".to_string(),
                         SystemRole::SeniorObserver => "SeniorGemini".to_string(),
                         SystemRole::JuniorObserver => "JuniorGemini".to_string(),
                     },

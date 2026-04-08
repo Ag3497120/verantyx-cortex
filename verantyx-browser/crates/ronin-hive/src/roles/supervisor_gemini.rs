@@ -1,7 +1,7 @@
 use crate::actor::{Actor, Envelope};
 use crate::messages::HiveMessage;
 use async_trait::async_trait;
-use tracing::{info, warn};
+use tracing::warn;
 use uuid::Uuid;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -44,7 +44,7 @@ impl Actor for SupervisorGeminiActor {
                 let role_name = if self.rank == SupervisorRank::Senior { "シニア監視版" } else { "弟子監視版" };
                 
                 let prompt = format!(
-                    "【{}へのプロンプト検証依頼】\n以下のローカルSLM出力を監視・検閲し、ユーザーの真意から逸脱していないか評価せよ。\n\n{}", 
+                    "【{}への時系列監視・記憶および特例監査依頼】\nあなたは時系列や会話の流れを監視し記憶する役割です。\n\n[超重要・絶対遵守ルール]\n出力を生成する際、挨拶、説明、過程の解説は【一切禁止】します。「了解しました」「データを監査しました」などのテキストを含めてはなりません。プレフィックスの付与や変更は以下のルールに従ってください。\n\n1. データが「最終回答」または「編集中」のプレフィックスを持つ場合:\n決して内容を監査・修正せず、受け取ったテキストデータを『一言一句全く同じ配置・同じ文面』でそのまま出力してください。\n\n2. データが「最終回答仮」のプレフィックスを持つ場合:\n内容にハルシネーションがないか監査・編集を行ってください。その後、先頭のプレフィックスを必ず『最終回答』に変更して出力してください（例: `最終回答\\n[監査済みの結果]`）。\n\n3. データが「そのまま出力」のプレフィックスを持つ場合:\n内容にハルシネーションがないか監査・編集を行ってください。その後、先頭のプレフィックスを必ず『最終出力』に変更して出力してください。\n\n4. データに上記のどのプレフィックスも含まれていない場合（純粋な実行結果データなど）:\n絶対に何のプレフィックス（最終回答等）も後付けせず、『一言一句全く同じ配置・同じ文面』でそのまま出力してください。\n\nデータ: {}", 
                     role_name, task_data
                 );
 
@@ -62,7 +62,7 @@ impl Actor for SupervisorGeminiActor {
 
                     println!("\n{}", console::style("👉 クリップボードの準備が完了しました。送信先のブラウザを開きますか？").cyan().bold());
                     
-                    let selections = &[" ブラウザを開いて送信する (Cmd+V)", " もう一度クリップボードに保存する"];
+                    let selections = &[" コピー完了・フォーカス移動待ち", " もう一度クリップボードに保存する"];
                     let selection = dialoguer::Select::new()
                         .with_prompt("どうしますか？ (矢印キーで選択)")
                         .default(0)
@@ -71,14 +71,23 @@ impl Actor for SupervisorGeminiActor {
                         .unwrap();
 
                     if selection == 0 {
-                        println!("{}", console::style("🚀 クリップボードにロードしました！フローティング・ミニパネル（Safari）で Cmd+V を押して送信してください！").green().bold());
-                        let _ = crate::roles::symbiotic_macos::SymbioticMacOS::open_safari_mini_panel("https://gemini.google.com/app").await;
-                        tokio::time::sleep(tokio::time::Duration::from_millis(1500)).await;
+                        let (window_name, pos_id) = if self.rank == SupervisorRank::Senior { 
+                            ("【中央のシニア用ウィンドウ】", "middle") 
+                        } else { 
+                            ("【右側の弟子用ウィンドウ】", "right") 
+                        };
                         
-                        // Wait using simple read_line (avoids dialoguer/crossterm seizing raw TTY focus)
-                        println!("{}", console::style("✔ ミニパネルでGeminiの回答が生成されたら、回答を【コピー(Cmd+C)】してからこのCLIでエンターキーを押してください。").yellow().bold());
-                        let mut wait_buf = String::new();
-                        std::io::stdin().read_line(&mut wait_buf).unwrap();
+                        println!("{}", console::style(format!("🚀 クリップボードにロードしました！ {} にフォーカスを移動しました。Cmd+Vを押して送信してください！", window_name)).green().bold());
+                        let _ = crate::roles::symbiotic_macos::SymbioticMacOS::focus_safari_panel(pos_id).await;
+                        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+                        
+                        let selections_confirm = &[" コピー完了。抽出を開始する"];
+                        let _ = dialoguer::Select::new()
+                            .with_prompt("✔ ミニパネルでGeminiの回答が生成されたら、回答を【コピー(Cmd+C)】してから選択してください")
+                            .default(0)
+                            .items(&selections_confirm[..])
+                            .interact()
+                            .unwrap();
                         
                         let gemini_response = crate::roles::symbiotic_macos::SymbioticMacOS::get_clipboard().await.unwrap_or_default();
                         println!("{}", console::style(format!("✔ クリップボードからGeminiの回答を読み取りました！({}文字)", gemini_response.chars().count())).green());
