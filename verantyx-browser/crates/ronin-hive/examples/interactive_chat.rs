@@ -195,17 +195,19 @@ If it exceeds 10,000 characters, detail only the 10 most recent events and summa
                     "gemma-2-test".to_string(), 
                     "Dual Browser Reactive REPL".to_string(), 
                     999,
-                    false, 
+                    is_ja, 
                     ronin_hive::roles::stealth_gemini::SystemRole::ArchitectWorker, 
                     1
                 );
                 senior_agent = ronin_hive::roles::supervisor_gemini::SupervisorGeminiActor::new(
                     new_senior_id,
-                    ronin_hive::roles::supervisor_gemini::SupervisorRank::Senior
+                    ronin_hive::roles::supervisor_gemini::SupervisorRank::Senior,
+                    is_ja
                 );
                 apprentice_agent = ronin_hive::roles::supervisor_gemini::SupervisorGeminiActor::new(
                     new_apprentice_id,
-                    ronin_hive::roles::supervisor_gemini::SupervisorRank::Apprentice
+                    ronin_hive::roles::supervisor_gemini::SupervisorRank::Apprentice,
+                    is_ja
                 );
 
                 conversation_turns = 1;
@@ -319,11 +321,9 @@ If it exceeds 10,000 characters, detail only the 10 most recent events and summa
             
             let log_phase2 = if is_ja { "[Phase 2] Seniorへハルシネーション監査およびプレフィックス変換を要求します..." } else { "[Phase 2] Prompting Senior for hallucination audit and prefix conversion..." };
             println!("\n{}", console::style(log_phase2).magenta().bold());
-            let req_title_ja = "【ユーザーの元の要件】\n{}\n\n【出力結果】\n{}";
-            let req_title_en = "[Original User Req]\n{}\n\n[Result Output]\n{}";
-            let senior_dispatch = HiveMessage::Objective(format!(
-                "{}", if is_ja { format!(req_title_ja, query, gemini_response_payload) } else { format!(req_title_en, query, gemini_response_payload) }
-            ));
+            let req_title_ja = format!("【ユーザーの元の要件】\n{}\n\n【出力結果】\n{}", query, gemini_response_payload);
+            let req_title_en = format!("[Original User Req]\n{}\n\n[Result Output]\n{}", query, gemini_response_payload);
+            let senior_dispatch = HiveMessage::Objective(if is_ja { req_title_ja } else { req_title_en });
             let senior_env = Envelope {
                 message_id: Uuid::new_v4(),
                 sender: "UserREPL".to_string(),
@@ -452,10 +452,8 @@ If it exceeds 10,000 characters, detail only the 10 most recent events and summa
                 let log_phase3 = if is_ja { "[Phase 3] Senior Gemini Memory Sync of Execution Result (Non-destructive)..." } else { "[Phase 3] Senior Gemini Memory Sync of Execution Result (Non-destructive)..." };
                 println!("\n{}", console::style(log_phase3).magenta().bold());
                 
-                let exec_report = if is_ja { "【Qwenによる実行完了報告】\n実行結果:\n{}" } else { "[Qwen Execution Report]\nResult:\n{}" };
-                let senior_dispatch_exec = HiveMessage::Objective(format!(
-                    "{}", format!(exec_report, qwen_output)
-                ));
+                let exec_report = if is_ja { format!("【Qwenによる実行完了報告】\n実行結果:\n{}", qwen_output) } else { format!("[Qwen Execution Report]\nResult:\n{}", qwen_output) };
+                let senior_dispatch_exec = HiveMessage::Objective(exec_report);
                 let senior_env_exec = Envelope {
                     message_id: Uuid::new_v4(),
                     sender: "UserREPL".to_string(),
@@ -478,8 +476,8 @@ If it exceeds 10,000 characters, detail only the 10 most recent events and summa
                     }
                 }
 
-                let sys_note = if is_ja { "【システム通知: コマンド実行結果】\n{}" } else { "[System Notification: CLI Execution Result]\n{}" };
-                auto_forward_payload = format!("{}", format!(sys_note, qwen_output));
+                let sys_note = if is_ja { format!("【システム通知: コマンド実行結果】\n{}", qwen_output) } else { format!("[System Notification: CLI Execution Result]\n{}", qwen_output) };
+                auto_forward_payload = sys_note;
                 previous_worker_payload = qwen_output;
                 continue;
             }
@@ -492,10 +490,8 @@ If it exceeds 10,000 characters, detail only the 10 most recent events and summa
             let phase2_log = if is_ja { "[Phase 2] Seniorへ純粋な時系列記憶として記録します (監査なし)..." } else { "[Phase 2] Recording to Senior time-series memory (no audit)..." };
             println!("\n{}", console::style(phase2_log).magenta().bold());
             
-            let req_res = if is_ja { "【出力結果】\n{}" } else { "[Result Output]\n{}" };
-            let senior_dispatch = HiveMessage::Objective(format!(
-                "{}", format!(req_res, gemini_response_payload)
-            ));
+            let req_res = if is_ja { format!("【出力結果】\n{}", gemini_response_payload) } else { format!("[Result Output]\n{}", gemini_response_payload) };
+            let senior_dispatch = HiveMessage::Objective(req_res);
             let senior_env = Envelope {
                 message_id: Uuid::new_v4(),
                 sender: "UserREPL".to_string(),
@@ -505,7 +501,7 @@ If it exceeds 10,000 characters, detail only the 10 most recent events and summa
 
             if let Some(senior_reply) = senior_agent.receive(senior_env).await? {
                 if let Ok(HiveMessage::Objective(senior_mod)) = serde_json::from_str(&senior_reply.payload) {
-                    if senior_mod.contains("最終回答") {
+                    if senior_mod.contains(pfx_final) {
                         seen_final_answer += 1;
                     }
                     if seen_final_answer >= 2 {

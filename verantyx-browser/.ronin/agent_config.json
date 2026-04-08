@@ -1,0 +1,10 @@
+{
+  "language": "ja",
+  "persona": {
+    "name": "cui-gui",
+    "personality": "フレンドリーに"
+  },
+  "scheduler": {
+    "night_watch_hour": 2
+  }
+}
