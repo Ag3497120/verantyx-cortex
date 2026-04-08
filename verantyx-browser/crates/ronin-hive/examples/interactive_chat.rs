@@ -4,9 +4,11 @@ use ronin_hive::roles::stealth_gemini::StealthWebActor;
 use ronin_core::models::provider::{LlmProvider, LlmMessage};
 use ronin_core::models::provider::ollama::OllamaProvider;
 use ronin_core::models::sampling_params::{InferenceRequest, SamplingParams, PromptFormat};
+use ronin_core::memory_bridge::spatial_index::SpatialIndex;
 use tracing::Level;
 use tracing_subscriber::FmtSubscriber;
 use uuid::Uuid;
+use chrono::Utc;
 use std::io::{self, Write};
 
 #[tokio::main]
@@ -80,6 +82,13 @@ async fn main() -> anyhow::Result<()> {
     let mut senior_agent = ronin_hive::roles::supervisor_gemini::SupervisorGeminiActor::new(senior_id, ronin_hive::roles::supervisor_gemini::SupervisorRank::Senior);
     let mut apprentice_agent = ronin_hive::roles::supervisor_gemini::SupervisorGeminiActor::new(apprentice_id, ronin_hive::roles::supervisor_gemini::SupervisorRank::Apprentice);
 
+    // --- Boot Spatial Index Memory Engine ---
+    let root_path = std::env::current_dir().unwrap().join(".ronin").join("experience.jcross");
+    let mut spatial_index = SpatialIndex::new(root_path);
+    if let Ok(count) = spatial_index.hydrate().await {
+        println!("{}", console::style(format!("🧠 空間記憶エンジン起動... {}件の過去のノードをロードしました。", count)).magenta());
+    }
+    
     println!("{}", console::style("Booting Stealth Gemini Actor... Please wait for Internal WKWebView GUI to render.\n").dim());
 
     let mut conversation_turns = 0;
@@ -279,15 +288,21 @@ async fn main() -> anyhow::Result<()> {
                     if senior_mod.contains("最終出力") {
                         seen_raw += 1;
                     }
-                    if seen_final_answer >= 2 {
-                        display_to_user = senior_mod;
-                        println!("{}", console::style("✅ シニアが「最終回答」をそのまま記憶に保存し、再リレーしました。").green().bold());
+                    if seen_raw >= 2 {
+                        display_to_user = senior_mod.clone();
+                        println!("{}", console::style("✅ シニアが「そのまま出力」を監査し、「最終出力」へ書き換えました。").green().bold());
+                        
+                        // Save Raw Output to Spatial Memory Front Zone
+                        let timestamp = Utc::now().format("%Y%m%d_%H%M%S").to_string();
+                        let memory_key = format!("mem_{}_raw_output", timestamp);
+                        let _ = spatial_index.write_front(&memory_key, &senior_mod).await;
+                        println!("{}", console::style(format!("💾 [記憶保存] 'Front' ゾーンに出力を物理保存しました ({}.md)", memory_key)).magenta());
                     }
                 }
             }
 
-            if seen_final_answer >= 2 {
-                println!("\n{}", console::style("=== USER OUTPUT (最終回答) ===").cyan().bold());
+            if seen_raw >= 2 {
+                println!("\n{}", console::style("=== USER OUTPUT (最終出力) ===").cyan().bold());
                 println!("{}", display_to_user);
                 println!("{}", console::style("=============================").cyan().bold());
                 previous_worker_payload = display_to_user;
@@ -311,7 +326,7 @@ async fn main() -> anyhow::Result<()> {
             };
 
             let mut pass1_output = String::new();
-            if let Some(senior_reply) = senior_agent.receive(senior_env).await? {
+                if let Some(senior_reply) = senior_agent.receive(senior_env).await? {
                 if let Ok(HiveMessage::Objective(senior_mod)) = serde_json::from_str(&senior_reply.payload) {
                     if senior_mod.contains("編集中") {
                         seen_editing += 1;
@@ -322,6 +337,12 @@ async fn main() -> anyhow::Result<()> {
             }
 
             if seen_editing >= 2 {
+                // Save to Spatial Memory Front Zone (Task Intent)
+                let timestamp = Utc::now().format("%Y%m%d_%H%M%S").to_string();
+                let memory_key = format!("mem_{}_edit_intent", timestamp);
+                let _ = spatial_index.write_front(&memory_key, &pass1_output).await;
+                println!("{}", console::style(format!("💾 [記憶保存] 'Front' ゾーンにタスク意図を物理保存しました ({}.md)", memory_key)).magenta());
+
                 // Safely extract instruction by finding everything AFTER "編集中"
                 let parts: Vec<&str> = pass1_output.splitn(2, "編集中").collect();
                 let qwen_clean_prompt = if parts.len() > 1 {
@@ -377,8 +398,13 @@ async fn main() -> anyhow::Result<()> {
                 };
                 
                 if let Some(senior_reply) = senior_agent.receive(senior_env_exec).await? {
-                    if let Ok(HiveMessage::Objective(_)) = serde_json::from_str(&senior_reply.payload) {
+                    if let Ok(HiveMessage::Objective(senior_mod)) = serde_json::from_str(&senior_reply.payload) {
                         println!("\n✅ {}", console::style("シニア側の時系列記憶にプレフィックスなしで安全に実行結果を保存完了しました。").green().bold());
+                        // Save Qwen exec results to Spatial Memory Front Zone
+                        let timestamp = Utc::now().format("%Y%m%d_%H%M%S").to_string();
+                        let memory_key = format!("mem_{}_qwen_exec", timestamp);
+                        let _ = spatial_index.write_front(&memory_key, &senior_mod).await;
+                        println!("{}", console::style(format!("💾 [記憶保存] 'Front' ゾーンに結果を物理保存しました ({}.md)", memory_key)).magenta());
                     }
                 }
 
@@ -408,8 +434,14 @@ async fn main() -> anyhow::Result<()> {
                         seen_final_answer += 1;
                     }
                     if seen_final_answer >= 2 {
-                        display_to_user = senior_mod;
+                        display_to_user = senior_mod.clone();
                         println!("{}", console::style("✅ シニアが「最終回答」をそのまま記憶に保存し、再リレーしました。").green().bold());
+                        
+                        // Save Final Answer to Spatial Memory Front Zone
+                        let timestamp = Utc::now().format("%Y%m%d_%H%M%S").to_string();
+                        let memory_key = format!("mem_{}_final_answer", timestamp);
+                        let _ = spatial_index.write_front(&memory_key, &senior_mod).await;
+                        println!("{}", console::style(format!("💾 [記憶保存] 'Front' ゾーンに最終回答を物理保存しました ({}.md)", memory_key)).magenta());
                     }
                 }
             }
