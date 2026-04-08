@@ -189,6 +189,12 @@ impl SymbioticMacOS {
         Ok(())
     }
 
+    /// Securely retrieves text from the macOS clipboard.
+    pub async fn get_clipboard() -> anyhow::Result<String> {
+        let out = Command::new("pbpaste").output().await?;
+        Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+    }
+
     /// Gets the name of the currently active macOS application.
     pub async fn get_active_app() -> Option<String> {
         let script = r#"tell application "System Events" to get name of first application process whose frontmost is true"#;
@@ -200,6 +206,30 @@ impl SymbioticMacOS {
     /// Forces a specific application to the foreground.
     pub async fn focus_app(app_name: &str) -> anyhow::Result<()> {
         let script = format!(r#"tell application "{}" to activate"#, app_name);
+        Command::new("osascript").arg("-e").arg(&script).output().await?;
+        Ok(())
+    }
+
+    /// Explicitly opens a new Safari tab configured as a "Mini-Panel" in the corner of the screen.
+    /// It always creates a new tab, intentionally leaving the previous (Senior/Apprentice) tabs open as a historical ledger.
+    pub async fn open_safari_mini_panel(url: &str) -> anyhow::Result<()> {
+        let script = format!(
+            r#"
+            tell application "Safari"
+                activate
+                if (count of windows) = 0 then
+                    make new document
+                    set URL of front document to "{}"
+                else
+                    tell front window
+                        make new tab with properties {{URL:"{}"}}
+                        set current tab to last tab
+                    end tell
+                end if
+                set bounds of front window to {{50, 50, 600, 850}}
+            end tell"#,
+            url, url
+        );
         Command::new("osascript").arg("-e").arg(&script).output().await?;
         Ok(())
     }

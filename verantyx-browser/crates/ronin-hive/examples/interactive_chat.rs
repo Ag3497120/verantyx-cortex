@@ -66,7 +66,8 @@ async fn main() -> anyhow::Result<()> {
 
     println!("{}", console::style("Booting Stealth Gemini Actor... Please wait for Internal WKWebView GUI to render.\n").dim());
 
-    let mut conversation_turns = 1;
+    let mut conversation_turns = 0;
+    let mut previous_worker_payload = String::new();
 
     // 4. Interactive Chat Loop
     loop {
@@ -130,6 +131,8 @@ async fn main() -> anyhow::Result<()> {
 
         let combined_payload = format!("【USER PROMPT】\n{}\n\n【LOCAL SLM STRATEGY ANALYSIS】\n{}", query, slm_analysis);
 
+        let mut final_worker_payload = combined_payload.clone();
+
         // --- PHASE A: Supervisor Senior Hook ---
         let senior_dispatch = HiveMessage::Objective(combined_payload.clone());
         let senior_env = Envelope {
@@ -138,24 +141,40 @@ async fn main() -> anyhow::Result<()> {
             recipient: "SeniorSupervisor".to_string(),
             payload: serde_json::to_string(&senior_dispatch)?,
         };
-        let _ = senior_agent.receive(senior_env).await?;
+        
+        if let Some(senior_reply) = senior_agent.receive(senior_env).await? {
+            if let Ok(HiveMessage::Objective(senior_mod)) = serde_json::from_str(&senior_reply.payload) {
+                final_worker_payload.push_str("\n\n[Senior Corrections]:\n");
+                final_worker_payload.push_str(&senior_mod);
+            }
+        }
 
         // --- PHASE B: Supervisor Apprentice Hook (Only starts evaluating after turn 1) ---
         if conversation_turns > 1 {
-            let app_dispatch = HiveMessage::Objective(combined_payload.clone());
+            let app_payload = format!("【前回のワーカー実行結果（振り返り用）】\n{}\n\nこれに基づく空間記憶の反映漏れやハルシネーションを指摘してください。", previous_worker_payload);
+            let app_dispatch = HiveMessage::Objective(app_payload);
             let app_env = Envelope {
                 message_id: Uuid::new_v4(),
                 sender: "UserREPL".to_string(),
                 recipient: "ApprenticeSupervisor".to_string(),
                 payload: serde_json::to_string(&app_dispatch)?,
             };
-            let _ = apprentice_agent.receive(app_env).await?;
+            
+            if let Some(app_reply) = apprentice_agent.receive(app_env).await? {
+                if let Ok(HiveMessage::Objective(app_mod)) = serde_json::from_str(&app_reply.payload) {
+                    final_worker_payload.push_str("\n\n[Apprentice Spatial Observations]:\n");
+                    final_worker_payload.push_str(&app_mod);
+                }
+            }
         }
+
+        // Update tracking states
+        previous_worker_payload = final_worker_payload.clone();
 
         // --- PHASE C: Worker Dispatch ---
         let dispatch_msg = HiveMessage::SpawnSubAgent {
             id: subagent_id,
-            objective: combined_payload,
+            objective: final_worker_payload,
         };
 
         let turn_env = Envelope {

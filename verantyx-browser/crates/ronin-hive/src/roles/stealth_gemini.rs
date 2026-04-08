@@ -422,8 +422,8 @@ Personality: {persona_traits}
                                 .unwrap();
 
                             if selection == 0 {
-                                println!("{}", console::style("🚀 Safariをアクティブにします。Cmd+Vで送信してください！").green());
-                                let _ = crate::roles::symbiotic_macos::SymbioticMacOS::focus_app("Safari").await;
+                                println!("{}", console::style("🚀 クリップボードにロードしました！フローティング・ミニパネル（Safari）でCmd+Vを押して送信してください！").green());
+                                let _ = crate::roles::symbiotic_macos::SymbioticMacOS::open_safari_mini_panel("https://gemini.google.com/app").await;
                                 tokio::time::sleep(tokio::time::Duration::from_millis(1500)).await;
                             } else {
                                 println!("{}", console::style("🔄 [もう一度クリップボードに保存] を選択しました。").yellow());
@@ -432,7 +432,7 @@ Personality: {persona_traits}
 
                             // 4. Verification Check
                             let expected_sample = payload_str.chars().take(80).collect::<String>();
-                            println!("\n{} {}", console::style("↻ [AI_SYS]").yellow(), console::style(format!("送信検知を待機中... Safari上で対象の監視タブを開き、[ Cmd + V ] で貼り付けて送信してください。 (Expected: {}...)", expected_sample.replace('\n', " "))).dim());
+                            println!("\n{} {}", console::style("↻ [AI_SYS]").yellow(), console::style(format!("送信検知を待機中... ミニパネルの対象タブを開き、[ Cmd + V ] で貼り付けて送信してください。 (Expected: {}...)", expected_sample.replace('\n', " "))).dim());
 
                             // Wait for user to paste and submit. Usually takes a human 3-5 seconds.
                             // The user said: "その貼り付けは文字の入力は考慮されずにエンターとして機能します。" -> CLI input acts as enter
