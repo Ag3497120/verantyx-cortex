@@ -63,6 +63,10 @@ async fn main() -> anyhow::Result<()> {
         .output()
         .await;
 
+    // Load Config
+    let config = ronin_hive::config::VerantyxConfig::load_or_wizard(&std::env::current_dir().unwrap());
+    let is_ja = config.language == "ja";
+
     // 3. Spawn StealthGemini Actor
     let subagent_id = Uuid::new_v4();
     let mut ephemeral_worker = StealthWebActor::new(
@@ -72,21 +76,25 @@ async fn main() -> anyhow::Result<()> {
         "gemma-2-test".to_string(), 
         "Dual Browser Reactive REPL".to_string(), 
         999, // Infinite loop essentially
-        false, 
+        is_ja, 
         ronin_hive::roles::stealth_gemini::SystemRole::ArchitectWorker, 
         1
     );
 
     let senior_id = Uuid::new_v4();
     let apprentice_id = Uuid::new_v4();
-    let mut senior_agent = ronin_hive::roles::supervisor_gemini::SupervisorGeminiActor::new(senior_id, ronin_hive::roles::supervisor_gemini::SupervisorRank::Senior);
-    let mut apprentice_agent = ronin_hive::roles::supervisor_gemini::SupervisorGeminiActor::new(apprentice_id, ronin_hive::roles::supervisor_gemini::SupervisorRank::Apprentice);
+    let mut senior_agent = ronin_hive::roles::supervisor_gemini::SupervisorGeminiActor::new(senior_id, ronin_hive::roles::supervisor_gemini::SupervisorRank::Senior, is_ja);
+    let mut apprentice_agent = ronin_hive::roles::supervisor_gemini::SupervisorGeminiActor::new(apprentice_id, ronin_hive::roles::supervisor_gemini::SupervisorRank::Apprentice, is_ja);
 
     // --- Boot Spatial Index Memory Engine ---
     let root_path = std::env::current_dir().unwrap().join(".ronin").join("experience.jcross");
     let mut spatial_index = SpatialIndex::new(root_path);
     if let Ok(count) = spatial_index.hydrate().await {
-        println!("{}", console::style(format!("🧠 空間記憶エンジン起動... {}件の過去のノードをロードしました。", count)).magenta());
+        if is_ja {
+            println!("{}", console::style(format!("🧠 空間記憶エンジン起動... {}件の過去のノードをロードしました。", count)).magenta());
+        } else {
+            println!("{}", console::style(format!("🧠 Spatial Memory Engine Booted... Loaded {} past nodes.", count)).magenta());
+        }
     }
     
     println!("{}", console::style("Booting Stealth Gemini Actor... Please wait for Internal WKWebView GUI to render.\n").dim());
@@ -94,6 +102,13 @@ async fn main() -> anyhow::Result<()> {
     let mut conversation_turns = 0;
     let mut previous_worker_payload = String::new();
     let mut auto_forward_payload = String::new();
+
+    // Define Prefixes
+    let pfx_editing = if is_ja { "編集中" } else { "[EDITING]" };
+    let pfx_raw = if is_ja { "そのまま出力" } else { "[RAW_OUTPUT]" };
+    let pfx_final = if is_ja { "最終回答" } else { "[FINAL_ANSWER]" };
+    let pfx_temp = if is_ja { "最終回答仮" } else { "[TEMP_FINAL]" };
+    let pfx_final_out = if is_ja { "最終出力" } else { "[FINAL_OUTPUT]" };
 
     // 4. Interactive Chat Loop
     loop {
@@ -125,14 +140,28 @@ async fn main() -> anyhow::Result<()> {
             conversation_turns += 1;
             
             if conversation_turns > 5 {
-                println!("{}", console::style("\n🔄 [Turn Limit Reached] 5ターンを経過しました。記憶の抽出とリレー大移動を開始します...").magenta().bold());
-                let relay_prompt = r#"
+                if is_ja {
+                    println!("{}", console::style("\n🔄 [Turn Limit Reached] 5ターンを経過しました。記憶の抽出とリレー大移動を開始します...").magenta().bold());
+                } else {
+                    println!("{}", console::style("\n🔄 [Turn Limit Reached] Surpassed 5 turns. Triggering memory extraction and relay...").magenta().bold());
+                }
+                let relay_prompt = if is_ja {
+                    r#"
 【強制コマンド：次世代Geminiへの記憶リレー抽出】
 現在の時系列の内容とこれまでの会話の流れをすべて出力せよ。
 あなたは間もなくシャットダウンされ、次にあなたと全く同じ初期プロンプトを持った新しいGemini（シニア・弟子・ワーカー）が立ち上がります。
 そのため、あなたの現在の内部記憶状態の詳細をまとめて、次のGeminiに渡すための引き継ぎテキストを生成してください。
 もし文字数が1万文字を超えそうな場合は、直近10件分の情報のみ詳細に記述し、それより前の時系列については要約して、全体が確実に1万文字以内に収まるように圧縮してください。
-"#;
+"#
+                } else {
+                    r#"
+[FORCED COMMAND: Memory Relay Extraction to Next-Gen Gemini]
+Output the content of the current timeline and the flow of conversation up to this point.
+You are about to be shut down, and a new Gemini (Senior/Apprentice/Worker) with the exact same initial prompt will spin up.
+Therefore, summarize the details of your current internal memory state and generate a handover text for the next Gemini.
+If it exceeds 10,000 characters, detail only the 10 most recent events and summarize older ones to ensure it stays within 10,000 characters.
+"#
+                };
                 let relay_dispatch = HiveMessage::Objective(relay_prompt.to_string());
                 let relay_env = Envelope {
                     message_id: Uuid::new_v4(),
@@ -244,14 +273,16 @@ async fn main() -> anyhow::Result<()> {
         let trimmed_gemini_output = gemini_response_payload.trim_start();
         
         // Priority checks using `.contains` to be highly fault-tolerant against Gemini's conversational preamble
-        if trimmed_gemini_output.contains("最終回答仮") {
-            println!("\n{}", console::style("=== 💡 GEMINI STATE: 最終回答仮 (Temporary Final Answer) ===").green().bold());
+        if trimmed_gemini_output.contains(pfx_temp) {
+            println!("\n{}", console::style(format!("=== 💡 GEMINI STATE: {} (Temporary Final Answer) ===", pfx_temp)).green().bold());
             seen_final_answer += 1;
             
-            println!("\n{}", console::style("[Phase 2] Seniorへハルシネーション監査およびプレフィックス変換を要求します...").magenta().bold());
+            println!("\n{}", console::style("[Phase 2] Prompting Senior for hallucination audit and prefix conversion...").magenta().bold());
+            let request_title1 = if is_ja { "【ユーザーの元の要件】" } else { "[Original User Req]" };
+            let request_title2 = if is_ja { "【出力結果】" } else { "[Result Output]" };
             let senior_dispatch = HiveMessage::Objective(format!(
-                "【ユーザーの元の要件】\n{}\n\n【出力結果】\n{}",
-                query, gemini_response_payload
+                "{}\n{}\n\n{}\n{}",
+                request_title1, query, request_title2, gemini_response_payload
             ));
             let senior_env = Envelope {
                 message_id: Uuid::new_v4(),
@@ -262,12 +293,13 @@ async fn main() -> anyhow::Result<()> {
 
             if let Some(senior_reply) = senior_agent.receive(senior_env).await? {
                 if let Ok(HiveMessage::Objective(senior_mod)) = serde_json::from_str(&senior_reply.payload) {
-                    if senior_mod.starts_with("最終回答") {
+                    if senior_mod.starts_with(pfx_final) {
                         seen_final_answer += 1;
                     }
                     if seen_final_answer >= 2 {
                         display_to_user = senior_mod;
-                        println!("{}", console::style("✅ シニアが「最終回答仮」を監査し、「最終回答」へ書き換えました。").green().bold());
+                        let success_msg = if is_ja { "✅ シニアが「最終回答仮」を監査し、「最終回答」へ書き換えました。" } else { "✅ Senior audited Temp-Final and rewrote as Final Answer." };
+                        println!("{}", console::style(success_msg).green().bold());
                     }
                 }
             }
@@ -280,14 +312,17 @@ async fn main() -> anyhow::Result<()> {
                 continue;
             }
 
-        } else if trimmed_gemini_output.contains("そのまま出力") {
-            println!("\n{}", console::style("=== 💡 GEMINI STATE: そのまま出力 (Raw Output / Audit Needed) ===").green().bold());
+        } else if trimmed_gemini_output.contains(pfx_raw) {
+            let log_state = if is_ja { format!("=== 💡 GEMINI STATE: {} (Raw Output / Audit Needed) ===", pfx_raw) } else { format!("=== 💡 GEMINI STATE: {} (Audit Needed) ===", pfx_raw) };
+            println!("\n{}", console::style(log_state).green().bold());
             let mut seen_raw = 1;
             
-            println!("\n{}", console::style("[Phase 2] Seniorへハルシネーション監査およびプレフィックス変換を要求します...").magenta().bold());
+            let log_phase2 = if is_ja { "[Phase 2] Seniorへハルシネーション監査およびプレフィックス変換を要求します..." } else { "[Phase 2] Prompting Senior for hallucination audit and prefix conversion..." };
+            println!("\n{}", console::style(log_phase2).magenta().bold());
+            let req_title_ja = "【ユーザーの元の要件】\n{}\n\n【出力結果】\n{}";
+            let req_title_en = "[Original User Req]\n{}\n\n[Result Output]\n{}";
             let senior_dispatch = HiveMessage::Objective(format!(
-                "【ユーザーの元の要件】\n{}\n\n【出力結果】\n{}",
-                query, gemini_response_payload
+                "{}", if is_ja { format!(req_title_ja, query, gemini_response_payload) } else { format!(req_title_en, query, gemini_response_payload) }
             ));
             let senior_env = Envelope {
                 message_id: Uuid::new_v4(),
@@ -298,38 +333,45 @@ async fn main() -> anyhow::Result<()> {
 
             if let Some(senior_reply) = senior_agent.receive(senior_env).await? {
                 if let Ok(HiveMessage::Objective(senior_mod)) = serde_json::from_str(&senior_reply.payload) {
-                    if senior_mod.contains("最終出力") {
+                    if senior_mod.contains(pfx_final_out) {
                         seen_raw += 1;
                     }
                     if seen_raw >= 2 {
                         display_to_user = senior_mod.clone();
-                        println!("{}", console::style("✅ シニアが「そのまま出力」を監査し、「最終出力」へ書き換えました。").green().bold());
+                        let success_msg = if is_ja { format!("✅ シニアが「{}」を監査し、「{}」へ書き換えました。", pfx_raw, pfx_final_out) } else { format!("✅ Senior audited {} and rewrote as {}.", pfx_raw, pfx_final_out) };
+                        println!("{}", console::style(success_msg).green().bold());
                         
                         // Save Raw Output to Spatial Memory Front Zone
                         let timestamp = Utc::now().format("%Y%m%d_%H%M%S").to_string();
                         let memory_key = format!("mem_{}_raw_output", timestamp);
                         let _ = spatial_index.write_front(&memory_key, &senior_mod).await;
-                        println!("{}", console::style(format!("💾 [記憶保存] 'Front' ゾーンに出力を物理保存しました ({}.md)", memory_key)).magenta());
+                        let save_msg = if is_ja { format!("💾 [記憶保存] 'Front' ゾーンに出力を物理保存しました ({}.md)", memory_key) } else { format!("💾 [Memory] Saved output to 'Front' zone ({}.md)", memory_key) };
+                        println!("{}", console::style(save_msg).magenta());
                     }
                 }
             }
 
             if seen_raw >= 2 {
-                println!("\n{}", console::style("=== USER OUTPUT (最終出力) ===").cyan().bold());
+                let log_final = if is_ja { format!("=== USER OUTPUT ({}) ===", pfx_final_out) } else { format!("=== USER OUTPUT ({}) ===", pfx_final_out) };
+                println!("\n{}", console::style(log_final).cyan().bold());
                 println!("{}", display_to_user);
                 println!("{}", console::style("=============================").cyan().bold());
                 previous_worker_payload = display_to_user;
                 continue;
             }
 
-        } else if trimmed_gemini_output.contains("編集中") {
-            println!("\n{}", console::style("=== 📝 GEMINI STATE: 編集中 (Editing Mode) ===").yellow().bold());
+        } else if trimmed_gemini_output.contains(pfx_editing) {
+            let log_state = if is_ja { format!("=== 📝 GEMINI STATE: {} (Editing Mode) ===", pfx_editing) } else { format!("=== 📝 GEMINI STATE: {} (Editing Mode) ===", pfx_editing) };
+            println!("\n{}", console::style(log_state).yellow().bold());
             seen_editing += 1;
             
-            println!("\n{}", console::style("[Phase 2-A] Seniorへ純粋な時系列記憶として記録します (監査なし)...").magenta().bold());
+            let log_phase2a = if is_ja { "[Phase 2-A] Seniorへ純粋な時系列記憶として記録します (監査なし)..." } else { "[Phase 2-A] Saving to Senior time-series memory (no audit)..." };
+            println!("\n{}", console::style(log_phase2a).magenta().bold());
+            
+            let payload_title = if is_ja { "【出力結果】" } else { "[Result Output]" };
             let senior_dispatch = HiveMessage::Objective(format!(
-                "【出力結果】\n{}",
-                gemini_response_payload
+                "{}\n{}",
+                payload_title, gemini_response_payload
             ));
             let senior_env = Envelope {
                 message_id: Uuid::new_v4(),
@@ -339,12 +381,13 @@ async fn main() -> anyhow::Result<()> {
             };
 
             let mut pass1_output = String::new();
-                if let Some(senior_reply) = senior_agent.receive(senior_env).await? {
+            if let Some(senior_reply) = senior_agent.receive(senior_env).await? {
                 if let Ok(HiveMessage::Objective(senior_mod)) = serde_json::from_str(&senior_reply.payload) {
-                    if senior_mod.contains("編集中") {
+                    if senior_mod.contains(pfx_editing) {
                         seen_editing += 1;
                         pass1_output = senior_mod;
-                        println!("{}", console::style("✅ シニアが「編集中」をそのまま記憶に保存しました。").green().bold());
+                        let success_save = if is_ja { format!("✅ シニアが「{}」をそのまま記憶に保存しました。", pfx_editing) } else { format!("✅ Senior saved '{}' into memory.", pfx_editing) };
+                        println!("{}", console::style(success_save).green().bold());
                     }
                 }
             }
@@ -354,10 +397,12 @@ async fn main() -> anyhow::Result<()> {
                 let timestamp = Utc::now().format("%Y%m%d_%H%M%S").to_string();
                 let memory_key = format!("mem_{}_edit_intent", timestamp);
                 let _ = spatial_index.write_front(&memory_key, &pass1_output).await;
-                println!("{}", console::style(format!("💾 [記憶保存] 'Front' ゾーンにタスク意図を物理保存しました ({}.md)", memory_key)).magenta());
+                
+                let save_intent_msg = if is_ja { format!("💾 [記憶保存] 'Front' ゾーンにタスク意図を物理保存しました ({}.md)", memory_key) } else { format!("💾 [Memory] Saved task intent to 'Front' zone ({}.md)", memory_key) };
+                println!("{}", console::style(save_intent_msg).magenta());
 
-                // Safely extract instruction by finding everything AFTER "編集中"
-                let parts: Vec<&str> = pass1_output.splitn(2, "編集中").collect();
+                // Safely extract instruction by finding everything AFTER prefix
+                let parts: Vec<&str> = pass1_output.splitn(2, pfx_editing).collect();
                 let qwen_clean_prompt = if parts.len() > 1 {
                     parts[1].trim_start()
                 } else {
@@ -374,14 +419,20 @@ async fn main() -> anyhow::Result<()> {
                     stream: false,
                 };
                 
+                let exec_sys_en = "You are the Executioner. Based on the instructions from the Architect (Gemini), strictly perform the code edits or terminal commands, and output the result report. No dialogue or emotion is needed.";
+                let exec_sys_ja = "あなたはファイル編集やプロジェクトを操作する外部の協力者（Executer）です。Gemini（Architect）から与えられた指示に基づき、ファイルの編集案や必要な操作を厳密に行い、結果のレポートのみを出力してください。感情的な表現や会話は不要です。";
+                
+                let req_title_en = "[Tasks to execute]";
+                let req_title_ja = "【実行するべきタスク】";
+
                 let history = vec![
                     LlmMessage {
                         role: "system".to_string(),
-                        content: "あなたはファイル編集やプロジェクトを操作する外部の協力者（Executer）です。Gemini（Architect）から与えられた指示に基づき、ファイルの編集案や必要な操作を厳密に行い、結果のレポートのみを出力してください。感情的な表現や会話は不要です。".to_string(),
+                        content: if is_ja { exec_sys_ja.to_string() } else { exec_sys_en.to_string() },
                     },
                     LlmMessage {
                         role: "user".to_string(),
-                        content: format!("【実行するべきタスク】\n{}", qwen_clean_prompt),
+                        content: format!("{}\n{}", if is_ja { req_title_ja } else { req_title_en }, qwen_clean_prompt),
                     }
                 ];
 
@@ -398,10 +449,12 @@ async fn main() -> anyhow::Result<()> {
                 println!("{}", console::style("=============================").cyan().bold());
 
                 // --- PHASE 3: Supervisor Senior Hook (Memory Record ONLY for Execution Result) ---
-                println!("\n{}", console::style("[Phase 3] Senior Gemini Memory Sync of Execution Result (Non-destructive)...").magenta().bold());
+                let log_phase3 = if is_ja { "[Phase 3] Senior Gemini Memory Sync of Execution Result (Non-destructive)..." } else { "[Phase 3] Senior Gemini Memory Sync of Execution Result (Non-destructive)..." };
+                println!("\n{}", console::style(log_phase3).magenta().bold());
+                
+                let exec_report = if is_ja { "【Qwenによる実行完了報告】\n実行結果:\n{}" } else { "[Qwen Execution Report]\nResult:\n{}" };
                 let senior_dispatch_exec = HiveMessage::Objective(format!(
-                    "【Qwenによる実行完了報告】\n実行結果:\n{}",
-                    qwen_output
+                    "{}", format!(exec_report, qwen_output)
                 ));
                 let senior_env_exec = Envelope {
                     message_id: Uuid::new_v4(),
@@ -412,28 +465,36 @@ async fn main() -> anyhow::Result<()> {
                 
                 if let Some(senior_reply) = senior_agent.receive(senior_env_exec).await? {
                     if let Ok(HiveMessage::Objective(senior_mod)) = serde_json::from_str(&senior_reply.payload) {
-                        println!("\n✅ {}", console::style("シニア側の時系列記憶にプレフィックスなしで安全に実行結果を保存完了しました。").green().bold());
+                        let ok_save_exec = if is_ja { "シニア側の時系列記憶にプレフィックスなしで安全に実行結果を保存完了しました。" } else { "Safely saved execution result to Senior's memory stream without prefix." };
+                        println!("\n✅ {}", console::style(ok_save_exec).green().bold());
+                        
                         // Save Qwen exec results to Spatial Memory Front Zone
                         let timestamp = Utc::now().format("%Y%m%d_%H%M%S").to_string();
                         let memory_key = format!("mem_{}_qwen_exec", timestamp);
                         let _ = spatial_index.write_front(&memory_key, &senior_mod).await;
-                        println!("{}", console::style(format!("💾 [記憶保存] 'Front' ゾーンに結果を物理保存しました ({}.md)", memory_key)).magenta());
+                        
+                        let save_done = if is_ja { format!("💾 [記憶保存] 'Front' ゾーンに結果を物理保存しました ({}.md)", memory_key) } else { format!("💾 [Memory] Saved exec result to 'Front' zone ({}.md)", memory_key) };
+                        println!("{}", console::style(save_done).magenta());
                     }
                 }
 
-                auto_forward_payload = format!("【システム通知: コマンド実行結果】\n{}", qwen_output);
+                let sys_note = if is_ja { "【システム通知: コマンド実行結果】\n{}" } else { "[System Notification: CLI Execution Result]\n{}" };
+                auto_forward_payload = format!("{}", format!(sys_note, qwen_output));
                 previous_worker_payload = qwen_output;
                 continue;
             }
         
-        } else if trimmed_gemini_output.contains("最終回答") {
-            println!("\n{}", console::style("=== 💡 GEMINI STATE: 最終回答 (Final Answer) ===").green().bold());
+        } else if trimmed_gemini_output.contains(pfx_final) {
+            let state_final_log = if is_ja { format!("=== 💡 GEMINI STATE: {} (Final Answer) ===", pfx_final) } else { format!("=== 💡 GEMINI STATE: {} (Final Answer) ===", pfx_final) };
+            println!("\n{}", console::style(state_final_log).green().bold());
             seen_final_answer += 1;
             
-            println!("\n{}", console::style("[Phase 2] Seniorへ純粋な時系列記憶として記録します (監査なし)...").magenta().bold());
+            let phase2_log = if is_ja { "[Phase 2] Seniorへ純粋な時系列記憶として記録します (監査なし)..." } else { "[Phase 2] Recording to Senior time-series memory (no audit)..." };
+            println!("\n{}", console::style(phase2_log).magenta().bold());
+            
+            let req_res = if is_ja { "【出力結果】\n{}" } else { "[Result Output]\n{}" };
             let senior_dispatch = HiveMessage::Objective(format!(
-                "【出力結果】\n{}",
-                gemini_response_payload
+                "{}", format!(req_res, gemini_response_payload)
             ));
             let senior_env = Envelope {
                 message_id: Uuid::new_v4(),
