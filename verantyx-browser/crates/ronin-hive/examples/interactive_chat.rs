@@ -93,15 +93,24 @@ async fn main() -> anyhow::Result<()> {
 
     let mut conversation_turns = 0;
     let mut previous_worker_payload = String::new();
+    let mut auto_forward_payload = String::new();
 
     // 4. Interactive Chat Loop
     loop {
-        print!("{}", console::style("\n(Verantyx)> ").green().bold());
-        io::stdout().flush().unwrap();
-
-        let mut input = String::new();
-        io::stdin().read_line(&mut input).unwrap();
-        let query = input.trim();
+        let is_new_user_turn = auto_forward_payload.is_empty();
+        
+        let query = if !is_new_user_turn {
+            let val = auto_forward_payload.clone();
+            auto_forward_payload.clear();
+            println!("{}", console::style("\n(Verantyx)> [System Auto Forwarding Execution Result to Worker]").dim());
+            val
+        } else {
+            print!("{}", console::style("\n(Verantyx)> ").green().bold());
+            io::stdout().flush().unwrap();
+            let mut input = String::new();
+            io::stdin().read_line(&mut input).unwrap();
+            input.trim().to_string()
+        };
 
         if query == "exit" || query == "quit" {
             println!("Exiting Interactive Mode.");
@@ -110,81 +119,85 @@ async fn main() -> anyhow::Result<()> {
 
         if query.is_empty() { continue; }
 
-        conversation_turns += 1;
-        if conversation_turns > 5 {
-            println!("{}", console::style("\n🔄 [Turn Limit Reached] 5ターンを経過しました。記憶の抽出とリレー大移動を開始します...").magenta().bold());
-            let relay_prompt = r#"
+        let mut apprentice_feedback = String::new();
+
+        if is_new_user_turn {
+            conversation_turns += 1;
+            
+            if conversation_turns > 5 {
+                println!("{}", console::style("\n🔄 [Turn Limit Reached] 5ターンを経過しました。記憶の抽出とリレー大移動を開始します...").magenta().bold());
+                let relay_prompt = r#"
 【強制コマンド：次世代Geminiへの記憶リレー抽出】
 現在の時系列の内容とこれまでの会話の流れをすべて出力せよ。
 あなたは間もなくシャットダウンされ、次にあなたと全く同じ初期プロンプトを持った新しいGemini（シニア・弟子・ワーカー）が立ち上がります。
 そのため、あなたの現在の内部記憶状態の詳細をまとめて、次のGeminiに渡すための引き継ぎテキストを生成してください。
 もし文字数が1万文字を超えそうな場合は、直近10件分の情報のみ詳細に記述し、それより前の時系列については要約して、全体が確実に1万文字以内に収まるように圧縮してください。
 "#;
-            let relay_dispatch = HiveMessage::Objective(relay_prompt.to_string());
-            let relay_env = Envelope {
-                message_id: Uuid::new_v4(),
-                sender: "UserREPL".to_string(),
-                recipient: "SeniorSupervisor".to_string(),
-                payload: serde_json::to_string(&relay_dispatch)?,
-            };
+                let relay_dispatch = HiveMessage::Objective(relay_prompt.to_string());
+                let relay_env = Envelope {
+                    message_id: Uuid::new_v4(),
+                    sender: "UserREPL".to_string(),
+                    recipient: "SeniorSupervisor".to_string(),
+                    payload: serde_json::to_string(&relay_dispatch)?,
+                };
 
-            let mut extracted_memory = String::new();
-            if let Some(relay_reply) = senior_agent.receive(relay_env).await? {
-                if let Ok(HiveMessage::Objective(mem)) = serde_json::from_str(&relay_reply.payload) {
-                    extracted_memory = mem;
+                let mut extracted_memory = String::new();
+                if let Some(relay_reply) = senior_agent.receive(relay_env).await? {
+                    if let Ok(HiveMessage::Objective(mem)) = serde_json::from_str(&relay_reply.payload) {
+                        extracted_memory = mem;
+                    }
                 }
+
+                println!("{}", console::style("\n✅ 記憶の抽出が完了しました。古いエージェントを破棄して新しいエージェントに継承します。").green().bold());
+                let mut timeline_path = std::env::current_dir().unwrap();
+                timeline_path.push(".ronin");
+                std::fs::create_dir_all(&timeline_path).unwrap();
+                timeline_path.push("timeline.md");
+                std::fs::write(&timeline_path, extracted_memory).unwrap();
+
+                let new_worker_id = Uuid::new_v4();
+                let new_senior_id = Uuid::new_v4();
+                let new_apprentice_id = Uuid::new_v4();
+
+                ephemeral_worker = StealthWebActor::new(
+                    new_worker_id,
+                    true,
+                    std::env::current_dir().unwrap(), 
+                    "gemma-2-test".to_string(), 
+                    "Dual Browser Reactive REPL".to_string(), 
+                    999,
+                    false, 
+                    ronin_hive::roles::stealth_gemini::SystemRole::ArchitectWorker, 
+                    1
+                );
+                senior_agent = ronin_hive::roles::supervisor_gemini::SupervisorGeminiActor::new(
+                    new_senior_id,
+                    ronin_hive::roles::supervisor_gemini::SupervisorRank::Senior
+                );
+                apprentice_agent = ronin_hive::roles::supervisor_gemini::SupervisorGeminiActor::new(
+                    new_apprentice_id,
+                    ronin_hive::roles::supervisor_gemini::SupervisorRank::Apprentice
+                );
+
+                conversation_turns = 1;
+                println!("{}", console::style("✅ 次世代への時系列引き継ぎが完了しました。\n").green().bold());
             }
 
-            println!("{}", console::style("\n✅ 記憶の抽出が完了しました。古いエージェントを破棄して新しいエージェントに継承します。").green().bold());
-            let mut timeline_path = std::env::current_dir().unwrap();
-            timeline_path.push(".ronin");
-            std::fs::create_dir_all(&timeline_path).unwrap();
-            timeline_path.push("timeline.md");
-            std::fs::write(&timeline_path, extracted_memory).unwrap();
-
-            let new_worker_id = Uuid::new_v4();
-            let new_senior_id = Uuid::new_v4();
-            let new_apprentice_id = Uuid::new_v4();
-
-            ephemeral_worker = StealthWebActor::new(
-                new_worker_id,
-                true,
-                std::env::current_dir().unwrap(), 
-                "gemma-2-test".to_string(), 
-                "Dual Browser Reactive REPL".to_string(), 
-                999,
-                false, 
-                ronin_hive::roles::stealth_gemini::SystemRole::ArchitectWorker, 
-                1
-            );
-            senior_agent = ronin_hive::roles::supervisor_gemini::SupervisorGeminiActor::new(
-                new_senior_id,
-                ronin_hive::roles::supervisor_gemini::SupervisorRank::Senior
-            );
-            apprentice_agent = ronin_hive::roles::supervisor_gemini::SupervisorGeminiActor::new(
-                new_apprentice_id,
-                ronin_hive::roles::supervisor_gemini::SupervisorRank::Apprentice
-            );
-
-            conversation_turns = 1;
-            println!("{}", console::style("✅ 次世代への時系列引き継ぎが完了しました。\n").green().bold());
-        }
-
-        // --- PHASE 0: Supervisor Apprentice Hook (Offset T+1) ---
-        let mut apprentice_feedback = String::new();
-        if conversation_turns > 1 {
-            let app_payload = format!("【前回の実行結果（振り返り用）】\n{}\n\nこれに基づく空間記憶の反映漏れや異常を指摘してください。", previous_worker_payload);
-            let app_dispatch = HiveMessage::Objective(app_payload);
-            let app_env = Envelope {
-                message_id: Uuid::new_v4(),
-                sender: "UserREPL".to_string(),
-                recipient: "ApprenticeSupervisor".to_string(),
-                payload: serde_json::to_string(&app_dispatch)?,
-            };
-            
-            if let Some(app_reply) = apprentice_agent.receive(app_env).await? {
-                if let Ok(HiveMessage::Objective(app_mod)) = serde_json::from_str(&app_reply.payload) {
-                    apprentice_feedback = app_mod;
+            // --- PHASE 0: Supervisor Apprentice Hook (Offset T+1) ---
+            if conversation_turns > 1 {
+                let app_payload = format!("【前回の実行結果（振り返り用）】\n{}\n\nこれに基づく空間記憶の反映漏れや異常を指摘してください。", previous_worker_payload);
+                let app_dispatch = HiveMessage::Objective(app_payload);
+                let app_env = Envelope {
+                    message_id: Uuid::new_v4(),
+                    sender: "UserREPL".to_string(),
+                    recipient: "ApprenticeSupervisor".to_string(),
+                    payload: serde_json::to_string(&app_dispatch)?,
+                };
+                
+                if let Some(app_reply) = apprentice_agent.receive(app_env).await? {
+                    if let Ok(HiveMessage::Objective(app_mod)) = serde_json::from_str(&app_reply.payload) {
+                        apprentice_feedback = app_mod;
+                    }
                 }
             }
         }
@@ -408,6 +421,7 @@ async fn main() -> anyhow::Result<()> {
                     }
                 }
 
+                auto_forward_payload = format!("【システム通知: コマンド実行結果】\n{}", qwen_output);
                 previous_worker_payload = qwen_output;
                 continue;
             }
