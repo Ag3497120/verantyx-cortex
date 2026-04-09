@@ -1,10 +1,14 @@
 {
   "language": "ja",
+  "automation_mode": "AutoStealth",
   "persona": {
-    "name": "cui-gui",
-    "personality": "フレンドリーに"
+    "name": "Verantyx Alpha",
+    "personality": "friendly"
   },
   "scheduler": {
     "night_watch_hour": 2
+  },
+  "privacy": {
+    "auto_sync": false
   }
 }

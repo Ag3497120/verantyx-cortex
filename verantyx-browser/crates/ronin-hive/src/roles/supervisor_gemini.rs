@@ -14,11 +14,12 @@ pub struct SupervisorGeminiActor {
     pub id: Uuid,
     pub rank: SupervisorRank,
     pub is_ja: bool,
+    pub current_turns: u8,
 }
 
 impl SupervisorGeminiActor {
     pub fn new(id: Uuid, rank: SupervisorRank, is_ja: bool) -> Self {
-        Self { id, rank, is_ja }
+        Self { id, rank, is_ja, current_turns: 0 }
     }
 }
 
@@ -61,82 +62,124 @@ impl Actor for SupervisorGeminiActor {
                 };
 
                 let prompt_title = if self.is_ja { "サブタスク" } else { "Subtask" };
+                let padded_prompt = format!("===============================\n{}\n===============================", prompt.trim());
                 let send_msg = if self.is_ja { format!("これから【{}】版に送ります。クリップボードに保存します...", role_name) } else { format!("Sending to {}. Copying to clipboard...", role_name) };
                 let saved_msg = if self.is_ja { "保存しました！内容は以下の通りです:" } else { "Saved! Content snippet:" };
-                let ready_msg = if self.is_ja { "👉 クリップボードの準備が完了しました。送信先のブラウザを開きますか？" } else { "👉 Clipboard is ready. Focus the browser tab?" };
 
-                // --- HUMAN IN THE LOOP CLIPBOARD FLOW ---
-                loop {
-                    println!("\n{}", console::style(format!("╭─ [ Verantyx: {} {} ] ──────────────────", role_name, prompt_title)).yellow().bold());
-                    println!("{} 📝 {}", console::style("│").yellow().bold(), send_msg);
+                println!("\n{}", console::style(format!("╭─ [ Verantyx: {} {} ] ──────────────────", role_name, prompt_title)).yellow().bold());
+                println!("{} 📝 {}", console::style("│").yellow().bold(), send_msg);
 
-                    let _ = crate::roles::symbiotic_macos::SymbioticMacOS::set_clipboard(&prompt).await;
-                    tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
+                let _ = crate::roles::symbiotic_macos::SymbioticMacOS::set_clipboard(&padded_prompt).await;
+                tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
 
-                    println!("{} ✔ {}", console::style("│").green().bold(), saved_msg);
-                    println!("{} {}", console::style("│").green(), console::style(prompt.chars().take(150).collect::<String>() + "...").dim());
-                    println!("{}", console::style("╰─────────────────────────────────────────────────────").yellow().bold());
+                println!("{} ✔ {}", console::style("│").green().bold(), saved_msg);
+                println!("{} {}", console::style("│").green(), console::style(padded_prompt.chars().take(150).collect::<String>() + "...").dim());
+                println!("{}", console::style("╰─────────────────────────────────────────────────────").yellow().bold());
 
-                    println!("\n{}", console::style(ready_msg).cyan().bold());
+                let (window_name, pos_id) = if self.rank == SupervisorRank::Senior { 
+                    if self.is_ja { ("【中央のシニア用ウィンドウ】", "middle") } else { ("[Middle Senior Window]", "middle") }
+                } else { 
+                    if self.is_ja { ("【右側の弟子用ウィンドウ】", "right") } else { ("[Right Apprentice Window]", "right") }
+                };
+
+                let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+                let cfg = crate::config::VerantyxConfig::load(&cwd);
+
+                self.current_turns += 1;
+                if self.current_turns >= 5 {
+                    println!("{} Reached 5 memory turns for {}. Resetting Web Session to evade detection/context-bloat.", console::style("[SYSTEM]").cyan(), window_name);
+                    let reload_js = "window.location.href = 'https://gemini.google.com/app';";
+                    let mut reload_script = format!(
+                        r#"tell application "Safari"
+                            set winList to every window
+                            repeat with w in winList
+                                if name of w contains "{}" or document 1 of w is not missing value then
+                                    do JavaScript "{}" in document 1 of w
+                                    exit repeat
+                                end if
+                            end repeat
+                        end tell"#, 
+                        "Gemini", // Fallback search term if needed though we'll just target front window easily below
+                        reload_js
+                    );
+
+                    // A simpler robust way: focus the panel first, then do JavaScript
+                    let _ = crate::roles::symbiotic_macos::SymbioticMacOS::focus_safari_panel(pos_id).await;
+                    let reload_script_direct = format!(r#"tell application "Safari" to do JavaScript "{}" in front document"#, reload_js.replace("\"", "\\\""));
+                    let _ = tokio::process::Command::new("osascript").arg("-e").arg(&reload_script_direct).output().await;
                     
-                    let selections = if self.is_ja {
-                        vec![" コピー完了・フォーカス移動待ち", " もう一度クリップボードに保存する"]
-                    } else {
-                        vec![" Copy Complete. Wait for focus", " Copy to clipboard again"]
-                    };
-
-                    let prompt_msg = if self.is_ja { "どうしますか？ (矢印キーで選択)" } else { "Action? (Up/Down arrow)" };
-                    let selection = dialoguer::Select::new()
-                        .with_prompt(prompt_msg)
-                        .default(0)
-                        .items(&selections[..])
-                        .interact()
-                        .unwrap();
-
-                    if selection == 0 {
-                        let (window_name, pos_id) = if self.rank == SupervisorRank::Senior { 
-                            if self.is_ja { ("【中央のシニア用ウィンドウ】", "middle") } else { ("[Middle Senior Window]", "middle") }
-                        } else { 
-                            if self.is_ja { ("【右側の弟子用ウィンドウ】", "right") } else { ("[Right Apprentice Window]", "right") }
-                        };
-                        
-                        let sent_msg = if self.is_ja {
-                            format!("🚀 クリップボードにロードしました！ {} にフォーカスを移動しました。Cmd+Vを押して送信してください！", window_name)
-                        } else {
-                            format!("🚀 Copied to clipboard! Focused {}. Press Cmd+V and Enter!", window_name)
-                        };
-                        println!("{}", console::style(sent_msg).green().bold());
-                        let _ = crate::roles::symbiotic_macos::SymbioticMacOS::focus_safari_panel(pos_id).await;
-                        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-                        
-                        let selections_confirm = if self.is_ja { vec![" コピー完了。抽出を開始する"] } else { vec![" Extraction Ready"] };
-                        let confirm_prompt = if self.is_ja { "✔ ミニパネルでGeminiの回答が生成されたら、回答を【コピー(Cmd+C)】してから選択してください" } else { "✔ After Gemini generates the answer, COPY IT (Cmd+C) and press Enter" };
-                        let _ = dialoguer::Select::new()
-                            .with_prompt(confirm_prompt)
-                            .default(0)
-                            .items(&selections_confirm[..])
-                            .interact()
-                            .unwrap();
-                        
-                        let gemini_response = crate::roles::symbiotic_macos::SymbioticMacOS::get_clipboard().await.unwrap_or_default();
-                        
-                        let success_ext = if self.is_ja { format!("✔ クリップボードからGeminiの回答を読み取りました！({}文字)", gemini_response.chars().count()) } else { format!("✔ Extracted Gemini response from clipboard! ({} chars)", gemini_response.chars().count()) };
-                        println!("{}", console::style(success_ext).green());
-
-                        // Return the actual response
-                        let reply = HiveMessage::Objective(gemini_response);
-                        return Ok(Some(Envelope {
-                            message_id: Uuid::new_v4(),
-                            sender: self.name().to_string(),
-                            recipient: env.sender,
-                            payload: serde_json::to_string(&reply)?,
-                        }));
-                    } else {
-                        let retry_msg = if self.is_ja { "🔄 [もう一度クリップボードに保存] を選択しました。" } else { "🔄 Retrying clipboard copy." };
-                        println!("{}", console::style(retry_msg).yellow());
-                        continue;
-                    }
+                    tokio::time::sleep(tokio::time::Duration::from_secs(4)).await;
+                    self.current_turns = 0;
                 }
+
+                loop {
+                    println!("\n{}", console::style(if self.is_ja {"👉 クリップボード準備完了。ブラウザを開きますか？"} else {"👉 Clipboard ready. Focus browser tabs?"}).cyan().bold());
+                    
+                    // Step 1: Move Focus
+                    if cfg.automation_mode == crate::config::AutomationMode::AutoStealth {
+                        let sent_msg = format!("🚀 🤖 [AUTO-STEALTH] Focused {}. Geometric calibration executing...", window_name);
+                        println!("{}", console::style(sent_msg).green().bold());
+                    } else {
+                        let selections = if self.is_ja { vec![" コピー完了・フォーカス移動へ", " もう一度コピー"] } else { vec![" Move Focus", " Copy Again"] };
+                        let selection = dialoguer::Select::new()
+                            .with_prompt(if self.is_ja { "選択" } else { "Action" })
+                            .default(0).items(&selections[..]).interact().unwrap();
+                        if selection != 0 {
+                            let _ = crate::roles::symbiotic_macos::SymbioticMacOS::set_clipboard(&padded_prompt).await;
+                            continue;
+                        }
+                    }
+
+                    // Step 2: Paste and Send Information
+                    if cfg.automation_mode != crate::config::AutomationMode::AutoStealth {
+                        let sent_msg = format!("🚀 Focused {}. Please press Cmd+V and Send it manually!", window_name);
+                        println!("{}", console::style(sent_msg).green().bold());
+                    }
+                    
+                    let _ = crate::roles::symbiotic_macos::SymbioticMacOS::focus_safari_panel(pos_id).await;
+                    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+                    
+                    if cfg.automation_mode == crate::config::AutomationMode::AutoStealth {
+                        println!("{} 📝 (自動モードのため、自動ペースト＆送信を実行します...)", console::style("[AUTO]").cyan());
+                        let _ = crate::roles::symbiotic_macos::SymbioticMacOS::auto_visual_calibrated_paste_and_send(&padded_prompt).await;
+                    }
+
+                    // Step 3: Wait for LLM and signal extraction
+                    if cfg.automation_mode == crate::config::AutomationMode::AutoStealth {
+                        println!("{} ⏳ Waiting 6 seconds for Safari Gemini rendering...", console::style("[AUTO]").cyan());
+                        tokio::time::sleep(tokio::time::Duration::from_secs(6)).await;
+                    } else {
+                        let confirm_prompt = if self.is_ja { "✔ 回答が出たら Cmd+C でコピーして選択" } else { "✔ Copy answer (Cmd+C) and press Enter" };
+                        let _ = dialoguer::Select::new().with_prompt(confirm_prompt)
+                            .default(0).items(&[" Extraction Ready"]).interact().unwrap();
+                    }
+                    
+                    // Step 4: Autonomous copy logic. 
+                    // Note: Both manual and auto use the geometric extractor here to ensure structural unity!
+                    if cfg.automation_mode == crate::config::AutomationMode::AutoStealth {
+                        println!("{} ⏳ Executing autonomous visual extraction...", console::style("[SYSTEM]").cyan());
+                        if let Err(e) = crate::roles::symbiotic_macos::SymbioticMacOS::auto_visual_calibrated_extract_and_cleanup().await {
+                            warn!("[Supervisor] Autonomous geometric extraction EXITED WITH ERROR: {}", e);
+                        }
+                        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+                    }
+
+                    break;
+                }
+                
+                let gemini_response = crate::roles::symbiotic_macos::SymbioticMacOS::get_clipboard().await.unwrap_or_default();
+                        
+                let success_ext = if self.is_ja { format!("✔ 自動抽出完了！({}文字)", gemini_response.chars().count()) } else { format!("✔ Automated Extraction done! ({} chars)", gemini_response.chars().count()) };
+                println!("{}", console::style(success_ext).green());
+
+                // Return the actual response
+                let reply = HiveMessage::Objective(gemini_response);
+                return Ok(Some(Envelope {
+                    message_id: Uuid::new_v4(),
+                    sender: self.name().to_string(),
+                    recipient: env.sender,
+                    payload: serde_json::to_string(&reply)?,
+                }));
             },
             _ => Ok(None)
         }

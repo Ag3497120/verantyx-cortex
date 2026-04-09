@@ -11,6 +11,33 @@ use uuid::Uuid;
 use chrono::Utc;
 use std::io::{self, Write};
 
+fn focus_terminal() {
+    let term = std::env::var("TERM_PROGRAM").unwrap_or_default();
+    let app_name = if term.contains("iTerm") {
+        "iTerm"
+    } else if term.contains("Apple_Terminal") {
+        "Terminal"
+    } else if term.contains("vscode") {
+        if std::path::Path::new("/Applications/Cursor.app").exists() {
+            "Cursor"
+        } else {
+            "Visual Studio Code"
+        }
+    } else if term.contains("ghostty") {
+        "Ghostty"
+    } else if term.contains("WezTerm") {
+        "WezTerm"
+    } else if term.contains("Alacritty") {
+        "Alacritty"
+    } else {
+        "Terminal" // fallback
+    };
+
+    let script = format!("tell application \"{}\" to activate", app_name);
+    let _ = std::process::Command::new("osascript").arg("-e").arg(&script).spawn();
+    let _ = std::process::Command::new("afplay").arg("/System/Library/Sounds/Glass.aiff").spawn();
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     // 1. Initialize minimalistic UI logging
@@ -30,13 +57,12 @@ async fn main() -> anyhow::Result<()> {
         set screenHeight to item 4 of bnd
     end tell
     
-    -- 少し小さくするため、高さを85%に、幅も少し余裕を持たせる
+    -- Biraz küçült, we want the width to be about 65% to show the desktop UI
     set winHeight to (screenHeight * 0.85) as integer
     set topMargin to 50
-    set colWidth to (screenWidth / 3) as integer
-    set marginX to 10
+    set winWidth to (screenWidth * 0.65) as integer
     
-    -- Boot Safari with 3 side-by-side windows
+    -- Boot Safari with 3 cascading overlapping windows that preserve Desktop Layout
     tell application "Safari"
         activate
         delay 0.5
@@ -44,17 +70,17 @@ async fn main() -> anyhow::Result<()> {
         -- Left Window (Worker)
         make new document with properties {URL:"https://gemini.google.com/app"}
         set _w1 to front window
-        set bounds of _w1 to {marginX, topMargin, colWidth - marginX, topMargin + winHeight}
+        set bounds of _w1 to {10, topMargin, 10 + winWidth, topMargin + winHeight}
         
         -- Middle Window (Senior)
         make new document with properties {URL:"https://gemini.google.com/app"}
         set _w2 to front window
-        set bounds of _w2 to {colWidth + marginX, topMargin, (colWidth * 2) - marginX, topMargin + winHeight}
+        set bounds of _w2 to {100, topMargin, 100 + winWidth, topMargin + winHeight}
         
         -- Right Window (Apprentice)
         make new document with properties {URL:"https://gemini.google.com/app"}
         set _w3 to front window
-        set bounds of _w3 to {(colWidth * 2) + marginX, topMargin, screenWidth - marginX, topMargin + winHeight}
+        set bounds of _w3 to {200, topMargin, 200 + winWidth, topMargin + winHeight}
     end tell
     "#;
     let _ = tokio::process::Command::new("osascript")
@@ -63,8 +89,48 @@ async fn main() -> anyhow::Result<()> {
         .output()
         .await;
 
-    // Load Config
-    let config = ronin_hive::config::VerantyxConfig::load_or_wizard(&std::env::current_dir().unwrap());
+    // Load Config (Wizard if first time)
+    let mut config = ronin_hive::config::VerantyxConfig::load_or_wizard(&std::env::current_dir().unwrap());
+    
+    // Always prompt for Automation Mode on Interactive Chat launch
+    let auto_selections = if config.language == "ja" { 
+        vec!["🤖 完全自動モード (AutoStealth) - 物理キャリブレーションで自律稼働", "👤 手動モード (Manual) - 人間がCmd+Vで仲介する安全網"]
+    } else { 
+        vec!["🤖 AutoStealth Mode - Physical calibration autonomous operation", "👤 Manual Mode - Human intervenes via Cmd+V"]
+    };
+    
+    let auto_selection = dialoguer::Select::with_theme(&dialoguer::theme::ColorfulTheme::default())
+        .with_prompt(if config.language == "ja" { "通信・ペーストの自動化モードを選択してください" } else { "Select Automation Mode" })
+        .default(if config.automation_mode == ronin_hive::config::AutomationMode::AutoStealth { 0 } else { 1 })
+        .items(&auto_selections)
+        .interact()
+        .unwrap();
+        
+    config.automation_mode = if auto_selection == 0 {
+        if config.language == "ja" {
+            println!("\n{}", console::style("⚠️ 【System Requirement for AutoStealth Mode】 ⚠️").red().bold());
+            println!("{}", console::style("完全自動モード（物理マウス操作）を利用するには、以下の環境設定が必須となります：").yellow().bold());
+            println!("{}", console::style("  ・ MacBook 14インチ であること").cyan());
+            println!("{}", console::style("  ・ ディスプレイ解像度が「デフォルト」に設定されていること").cyan());
+            println!("{}", console::style("  ・ Safariのフォントおよびブラウザのズームが「標準（100%）」であること").cyan());
+            println!("{}", console::style("設定が一致しない場合、マウスのクリック位置がズレて誤操作が発生する可能性があります。").yellow());
+            println!("{}", console::style("設定が正しい人はそのまま利用できますが、設定が違う人はシステム設定を上記に合わせてから再度お試しください。\n").yellow());
+        } else {
+            println!("\n{}", console::style("⚠️ [System Requirement for AutoStealth Mode] ⚠️").red().bold());
+            println!("{}", console::style("To use AutoStealth Mode, the following environment settings are REQUIRED:").yellow().bold());
+            println!("{}", console::style("  - MacBook 14-inch").cyan());
+            println!("{}", console::style("  - Display Resolution set to 'Default'").cyan());
+            println!("{}", console::style("  - Safari font and zoom set to 'Standard (100%)'").cyan());
+            println!("{}", console::style("If these settings do not match, the mouse click position will drift and cause misoperations.").yellow());
+        }
+        ronin_hive::config::AutomationMode::AutoStealth
+    } else {
+        ronin_hive::config::AutomationMode::Manual
+    };
+    
+    // Save to persist their latest explicit choice
+    let _ = config.save(&std::env::current_dir().unwrap());
+
     let is_ja = config.language == "ja";
 
     // 3. Spawn StealthGemini Actor
@@ -295,7 +361,7 @@ If it exceeds 10,000 characters, detail only the 10 most recent events and summa
 
             if let Some(senior_reply) = senior_agent.receive(senior_env).await? {
                 if let Ok(HiveMessage::Objective(senior_mod)) = serde_json::from_str(&senior_reply.payload) {
-                    if senior_mod.starts_with(pfx_final) {
+                    if senior_mod.contains(pfx_final) {
                         seen_final_answer += 1;
                     }
                     if seen_final_answer >= 2 {
@@ -311,6 +377,7 @@ If it exceeds 10,000 characters, detail only the 10 most recent events and summa
                 println!("{}", display_to_user);
                 println!("{}", console::style("=============================").cyan().bold());
                 previous_worker_payload = display_to_user;
+                focus_terminal();
                 continue;
             }
 
@@ -357,6 +424,7 @@ If it exceeds 10,000 characters, detail only the 10 most recent events and summa
                 println!("{}", display_to_user);
                 println!("{}", console::style("=============================").cyan().bold());
                 previous_worker_payload = display_to_user;
+                focus_terminal();
                 continue;
             }
 
@@ -479,6 +547,7 @@ If it exceeds 10,000 characters, detail only the 10 most recent events and summa
                 let sys_note = if is_ja { format!("【システム通知: コマンド実行結果】\n{}", qwen_output) } else { format!("[System Notification: CLI Execution Result]\n{}", qwen_output) };
                 auto_forward_payload = sys_note;
                 previous_worker_payload = qwen_output;
+                focus_terminal();
                 continue;
             }
         
@@ -522,12 +591,22 @@ If it exceeds 10,000 characters, detail only the 10 most recent events and summa
                 println!("{}", display_to_user);
                 println!("{}", console::style("=============================").cyan().bold());
                 previous_worker_payload = display_to_user;
+                focus_terminal();
                 continue;
             }
 
         } else {
             // Fallback for no prefix
             println!("\n{}", console::style("⚠️ [Warning] Worker returned no valid prefix! Treating as silent timeline record.").yellow().bold());
+            println!("{}", console::style("--- [EXTRACTED RAW PAYLOAD SNIPPET START] ---").dim());
+            // Print up to 1000 chars of the end of the payload to see what Gemini actually generated
+            let snippet = if gemini_response_payload.len() > 1000 {
+                &gemini_response_payload[gemini_response_payload.len() - 1000..]
+            } else {
+                &gemini_response_payload
+            };
+            println!("{}", snippet.trim());
+            println!("{}", console::style("--- [EXTRACTED RAW PAYLOAD SNIPPET END] ---").dim());
             previous_worker_payload = gemini_response_payload;
             continue;
         }

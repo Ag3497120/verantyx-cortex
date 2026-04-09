@@ -7,3 +7,4 @@ pub mod consensus;
 pub mod safari_evaluator;
 pub mod symbiotic_macos;
 pub mod supervisor_gemini;
+pub mod calibrator_bridge;

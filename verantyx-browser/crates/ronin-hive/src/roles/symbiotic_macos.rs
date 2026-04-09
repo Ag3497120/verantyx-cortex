@@ -270,336 +270,304 @@ impl SymbioticMacOS {
     /// Finds the send button by dropping visually from the edge of the active textarea 
     /// and scanning for the first "cursor: pointer" element (Pointing Hand).
     pub async fn auto_visual_calibrated_paste_and_send(_payload: &str) -> anyhow::Result<()> {
-        info!("[OS_BRIDGE] Engaging Zero-DOM Visual Pointer-Drop Calibration...");
+        info!("[OS_BRIDGE] Engaging Zero-DOM Visual Pointer-Drop Calibration for Text Input...");
         
+        // Google injects hidden 1x1 dummy contenteditables. We find the real chat box by selecting the largest visible area.
+        let focus_js = r#"
+            (() => {
+                let editables = document.querySelectorAll('textarea, [contenteditable="true"], rich-textarea');
+                let target = null;
+                let maxArea = -1;
+                for (let el of editables) {
+                    let rect = el.getBoundingClientRect();
+                    let area = rect.width * rect.height;
+                    // Exclude hidden elements or tiny traps
+                    if (area > maxArea && rect.width > 50 && rect.height > 10) {
+                        maxArea = area;
+                        target = el;
+                    }
+                }
+                if (target) {
+                    let r = target.getBoundingClientRect();
+                    return (r.left + (r.width / 2)) + "," + (r.top + (r.height / 2)) + "|" + window.innerWidth + "," + window.innerHeight + "|" + window.screenX + "," + window.screenY + "," + window.outerWidth + "," + window.outerHeight;
+                } else {
+                    return "";
+                }
+            })();
+        "#;
+        
+        let focus_script = format!(r#"tell application "Safari" to do JavaScript "{}" in front document"#, focus_js.replace("\"", "\\\""));
+        let focus_res = match Command::new("osascript").arg("-e").arg(&focus_script).output().await {
+            Ok(out) => String::from_utf8_lossy(&out.stdout).trim().to_string(),
+            Err(_) => String::new(),
+        };
+
+        let parse_coords = |res: &str| -> Option<(f32, f32, f32, f32, f32, f32, f32, f32)> {
+            if res.is_empty() { return None; }
+            let chunks: Vec<&str> = res.split('|').collect();
+            if chunks.len() != 3 { return None; }
+            
+            let pos: Vec<&str> = chunks[0].split(',').collect();
+            let size: Vec<&str> = chunks[1].split(',').collect();
+            let bounds: Vec<&str> = chunks[2].split(',').collect();
+            
+            if pos.len() == 2 && size.len() == 2 && bounds.len() == 4 {
+                let vx = pos[0].parse::<f32>().unwrap_or(0.0);
+                let vy = pos[1].parse::<f32>().unwrap_or(0.0);
+                let iw = size[0].parse::<f32>().unwrap_or(1000.0);
+                let ih = size[1].parse::<f32>().unwrap_or(800.0);
+                let bx = bounds[0].parse::<f32>().unwrap_or(0.0);
+                let by = bounds[1].parse::<f32>().unwrap_or(0.0);
+                let bw = bounds[2].parse::<f32>().unwrap_or(1440.0);
+                let bh = bounds[3].parse::<f32>().unwrap_or(900.0);
+                return Some((vx, vy, iw, ih, bx, by, bw, bh));
+            }
+            None
+        };
+
+        if let Some((vx, vy, iw, ih, bx, by, bw, bh)) = parse_coords(&focus_res) {
+            let chrome_y = (bh - ih).max(0.0);
+            let chrome_x = (bw - iw).max(0.0) / 2.0; 
+            let os_x = bx + chrome_x + vx;
+            let os_y = by + chrome_y + vy;
+
+            info!("[OS_BRIDGE] Found Input Text Area semantically. Emulating Physical OS Click at X={}, Y={}", os_x, os_y);
+
+            let ext_dance_script = format!(
+                r#"
+                ObjC.import('CoreGraphics');
+                ObjC.import('stdlib');
+                var delay = function(sec) {{ $.usleep(sec * 1000000); }};
+                
+                var targetPoint = $.CGPointMake({}, {});
+                var slideToC = $.CGEventCreateMouseEvent(null, $.kCGEventMouseMoved, targetPoint, $.kCGMouseButtonLeft);
+                $.CGEventPost($.kCGHIDEventTap, slideToC);
+                delay(0.1); 
+                
+                var clickDown = $.CGEventCreateMouseEvent(null, $.kCGEventLeftMouseDown, targetPoint, $.kCGMouseButtonLeft);
+                var clickUp = $.CGEventCreateMouseEvent(null, $.kCGEventLeftMouseUp, targetPoint, $.kCGMouseButtonLeft);
+                $.CGEventPost($.kCGHIDEventTap, clickDown);
+                delay(0.05);
+                $.CGEventPost($.kCGHIDEventTap, clickUp);
+                delay(0.3); // Give OS and Browser time to establish focus
+                "#,
+                os_x, os_y
+            );
+
+            let dance_path = std::env::temp_dir().join("symb_focus_dance.js");
+            std::fs::write(&dance_path, ext_dance_script)?;
+            
+            let _ = Command::new("osascript").arg("-l").arg("JavaScript").arg(dance_path.to_str().unwrap()).output().await;
+        } else {
+            // Fallback natively to .focus() if not found
+            let fallback_js = r#"tell application "Safari" to do JavaScript "let e = document.querySelector('textarea, [contenteditable=\"true\"], rich-textarea'); if(e) { e.focus(); }" in front document"#;
+            let _ = Command::new("osascript").arg("-e").arg(fallback_js).output().await;
+            tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+        }
+
+        info!("[OS_BRIDGE] Selected Strategy: Keyboard OS Submission (100% probability for maximum stability)");
         let paste_script = r#"
         tell application "System Events"
             keystroke "v" using command down
-            delay 1.0
+            delay 1.5
+            keystroke return using command down
+            delay 0.5
+            keystroke return
         end tell
         "#;
         Command::new("osascript").arg("-e").arg(paste_script).output().await?;
+        Ok(())
+    }
 
-        // Pure geometry + CSS Visual State. Zero classname/tag scraping!
-        // We find the 'Send' button by identifying the right-most 'cursor: pointer' element
-        // in the bottom-right bounding quadrant of the active text area.
-        let calib_js = r#"
-            let active = document.activeElement;
-            let coords = "";
-            if (active) {
-                let box = active.getBoundingClientRect();
+    /// Primary Extraction Method (User Verified Visual Tracking approach):
+    /// 1. Type `========` to mark caret.
+    /// 2. Get active Caret coordinates (X, Y).
+    /// 3. Move UP from Caret and Click (to focus out of input box). Guarantee blur.
+    /// 4. Cmd+Down to scroll to very bottom.
+    /// 5. Scan UP from Caret (Y) until CSS 'pointer' becomes active to find the true Copy Button.
+    /// 6. Move OS cursor to Copy Button -> Click.
+    /// 7. Move OS cursor back to Caret -> Click.
+    /// 8. Cmd+A -> Delete.
+    /// Zero-DOM Phase 2: Visual Pointer Drop Calibration for Extraction (Copy Button)
+    /// Finds the "Copy" button semantically or geometrically and fires an OS click at its physical location.
+    pub async fn auto_visual_calibrated_extract_and_cleanup() -> anyhow::Result<()> {
+        info!("[OS_BRIDGE] Engaging Zero-DOM Semantic & Geometric Calibration for Extraction...");
+
+        // Unfocus active element to prevent any typing or weird viewport scrolling loops
+        let blur_script = r#"tell application "Safari" to do JavaScript "if (document.activeElement) { document.activeElement.blur(); }" in front document"#;
+        let _ = Command::new("osascript").arg("-e").arg(blur_script).output().await?;
+
+        // Fast scroll to bottom to ensure the latest AI response copy button is firmly inside the viewport
+        let scroll_script = r#"
+        tell application "System Events"
+            key code 125 using command down
+            delay 0.5
+        end tell
+        "#;
+        Command::new("osascript").arg("-e").arg(scroll_script).output().await?;
+
+        // Semantic & Geometric Scan for the "Copy" button - Pass 1 (Identify and Scroll)
+        // We find the LAST "Copy" button in the DOM tree (which is the most recent AI response),
+        // and scroll it firmly into the center of the viewport so we can physically click it.
+        let scan_and_scroll_js = r#"
+            (() => {
+                let btns = Array.from(document.querySelectorAll('[role="button"], button, [aria-label], [data-tooltip], a'));
+                let targetBtn = null;
+                let maxTop = -1;
                 
-                // WPT 1 (I-Beam): Insertion Caret at the wrap line
-                let aX = box.right - 10;
-                let aY = box.bottom - 10;
-                
-                // Attempt to target the TRUE insertion pointer (Caret) position directly
-                let sel = window.getSelection();
-                if (sel && sel.rangeCount > 0) {
-                    let rects = sel.getRangeAt(0).getClientRects();
-                    if (rects.length > 0) {
-                        let rect = rects[rects.length - 1]; // Use last line of the rect
-                        if (rect.right > 0 && rect.right < window.innerWidth) {
-                            aX = rect.right;
-                            aY = rect.top + (rect.height / 2);
-                        }
-                    }
-                }
-                
-                // WPT 2 (Destination): Deterministic Send Button Tracker
-                let cX = aX;
-                let cY = aY + 50; // Fallback slightly below caret if we completely fail
-                
-                let btns = Array.from(document.querySelectorAll('button, [role="button"]'));
-                let sendBtn = null;
-                
-                // First pass: look for explicit Send/送信 labels or inner send icon text
                 for (let b of btns) {
                     let r = b.getBoundingClientRect();
-                    if (r.width > 0 && r.height > 0) {
-                        let label = b.getAttribute('aria-label') || '';
-                        let title = b.getAttribute('title') || '';
-                        let inner = b.innerHTML || '';
-                        if (
-                            label.includes('送信') || label.includes('Send') || 
-                            title.includes('送信') || title.includes('Send') || 
-                            inner.includes('send')
-                        ) {
-                            sendBtn = b;
-                            break;
-                        }
-                    }
-                }
-                
-                // Second pass: Find the button closest to bottom-right of the lower half viewport
-                if (!sendBtn) {
-                    let maxScore = -1;
-                    for (let b of btns) {
-                        let r = b.getBoundingClientRect();
-                        if (r.width > 0 && r.height > 0 && r.top > (window.innerHeight / 2)) {
-                            let score = r.left + r.top; // Prefer bottom-right-most Elements
-                            if (score > maxScore) {
-                                maxScore = score;
-                                sendBtn = b;
+                    // MUST be visibly rendered and button-sized
+                    if (r.width > 0 && r.height > 0 && r.width < 250 && r.height < 150) {
+                        let textRep = Array.from(b.attributes).map(a => (a.value || "").toLowerCase()).join(" ") + " " + (b.innerHTML || "").toLowerCase();
+                        let isCopy = textRep.includes('コピー') || textRep.includes('copy');
+                        
+                        if (isCopy) {
+                            if (r.top > maxTop) {
+                                maxTop = r.top;
+                                targetBtn = b;
                             }
                         }
                     }
                 }
                 
-                if (sendBtn) {
-                    let r = sendBtn.getBoundingClientRect();
-                    cX = r.left + (r.width / 2);
-                    cY = r.top + (r.height / 2);
-                }
-                
-                // Result: Slide elegantly and diagonally from Caret (A) straight to the Button (C)!
-                // Return Viewport Coordinates + Inner Size to calculate Safari OS Toolbars
-                coords = aX + "," + aY + ";" + cX + "," + cY + "|" + window.innerWidth + "," + window.innerHeight;
-            }
-            coords;
-        "#;
-        
-        let measure_script = format!(r#"tell application "Safari" to do JavaScript "{}" in front document"#, calib_js.replace("\"", "\\\""));
-        let out = Command::new("osascript").arg("-e").arg(&measure_script).output().await?;
-        let res = String::from_utf8_lossy(&out.stdout).trim().to_string();
-        
-        if !res.is_empty() && res.contains("|") {
-            let chunks: Vec<&str> = res.split('|').collect();
-            let path_str = chunks[0];
-            let size_str = chunks[1];
-            
-            let sizes: Vec<&str> = size_str.split(',').collect();
-            let inner_w = sizes[0].parse::<f32>().unwrap_or(1000.0);
-            let inner_h = sizes[1].parse::<f32>().unwrap_or(800.0);
-            
-            let bounds = Self::get_safari_bounds().await.unwrap_or(SafariBounds { x: 0, y: 0, width: 1440, height: 900 });
-            
-            // Safari Chrome Height mapping (Titlebar + Tab bar + Address bar height)
-            let chrome_y = (bounds.height as f32 - inner_h).max(0.0);
-            let chrome_x = (bounds.width as f32 - inner_w).max(0.0) / 2.0; // split left/right borders if any
-            
-            let mut os_waypoints = Vec::new();
-            for pt in path_str.split(';') {
-                let coords: Vec<&str> = pt.split(',').collect();
-                if coords.len() == 2 {
-                    let vx = coords[0].parse::<f32>().unwrap_or(0.0);
-                    let vy = coords[1].parse::<f32>().unwrap_or(0.0);
-                    
-                    let os_x = bounds.x as f32 + chrome_x + vx;
-                    let os_y = bounds.y as f32 + chrome_y + vy;
-                    os_waypoints.push(format!("{:.1},{:.1}", os_x, os_y));
-                }
-            }
-            
-            let os_path_str = os_waypoints.join(";");
-            info!("[OS_BRIDGE] Viewport -> OS Path Mapped: [{}]", os_path_str);
-            let _ = Self::drift_mouse_through_path(&os_path_str).await;
-            return Ok(());
-        }
-
-        info!("[OS_BRIDGE] Visual Calibration Missed Pointer. Forcing exact geometric drop-down...");
-        
-        // Geometric dropdown fallback utilizing the `=` boundary stabilization.
-        // The send button is exactly at the bottom right corner of the Safari window bounds.
-        let bounds = Self::get_safari_bounds().await.unwrap_or(SafariBounds { x: 0, y: 0, width: 1440, height: 900 });
-        
-        let base_x = bounds.x + bounds.width;
-        let target_x = base_x as f32 - 50.0;
-        
-        // Send button is situated exactly above the bottom boundary of the Safari window
-        let base_y = bounds.y + bounds.height;
-        let target_y = base_y as f32 - 120.0; 
-
-        info!("[OS_BRIDGE] Absolute geometric drop-down coordinates mapped -> ({}, {})", target_x, target_y);
-        
-        let _ = Self::drift_mouse_through_path(&format!("{:.1},{:.1}", target_x, target_y)).await;
-        
-        Ok(())
-    }
-
-    /// Autonomously grabs the full DOM output from the browser via Cmd+A and Cmd+C
-    pub async fn auto_copy_all() -> anyhow::Result<()> {
-        let script = r#"
-        tell application "System Events"
-            keystroke "a" using command down
-            delay 0.5
-            keystroke "c" using command down
-            delay 0.5
-        end tell
-        "#;
-        Command::new("osascript").arg("-e").arg(script).output().await?;
-        Ok(())
-    }
-
-    /// Primary Extraction Method:
-    /// Uses native Javascript DOM bounds detection to find the exact coordinates of the
-    /// Gemini model's output "Copy" button and the input area. It then performs native OS clicks 
-    /// to trigger the clean Markdown copy, returns to focus the input box, and clears it.
-    pub async fn auto_visual_calibrated_extract_and_cleanup() -> anyhow::Result<()> {
-        info!("[OS_BRIDGE] Engaging DOM Coordinate Extraction & Cleanup...");
-
-        // Step 1: Force scroll to absolute bottom to ensure elements are visibly mounted in DOM tree
-        let scroll_script = r#"
-        tell application "System Events"
-            key code 125 using command down
-            delay 0.8
-        end tell
-        "#;
-        Command::new("osascript").arg("-e").arg(scroll_script).output().await?;
-
-        // Step 2: Extract absolute viewport coordinates via DOM inspection
-        let dom_inspector_js = r#"
-            let cX = 0; let cY = 0; // Copy Button Coordinates
-            let aX = 0; let aY = 0; // Input Box Coordinates
-            
-            // Task A: Locate the "Copy" tooltip button of the *last* AI response
-            let btns = Array.from(document.querySelectorAll('button, [role="button"], [data-test-id="copy-button"]'));
-            let copyBtns = btns.filter(b => {
-                let label = b.getAttribute('aria-label') || '';
-                let title = b.getAttribute('title') || '';
-                let mat = b.getAttribute('mattooltip') || '';
-                let testId = b.getAttribute('data-test-id') || '';
-                let inner = b.innerHTML || '';
-                return label.includes('コピー') || label.includes('Copy') || 
-                       title.includes('コピー') || title.includes('Copy') ||
-                       mat.includes('コピー') || mat.includes('Copy') ||
-                       testId.includes('copy') || inner.includes('content_copy');
-            });
-            
-            if (copyBtns.length > 0) {
-                // The last valid copy button on the page is typically the one for the most recent response
-                let target = copyBtns[copyBtns.length - 1];
-                let rect = target.getBoundingClientRect();
-                cX = rect.left + (rect.width / 2);
-                cY = rect.top + (rect.height / 2);
-            } else {
-                // Heuristic Fallback: Bottom-right of the last chat container
-                let msgs = Array.from(document.querySelectorAll('message-content, .message-content, [data-test-id="response-message"]'));
-                if (msgs.length > 0) {
-                    let lastMsg = msgs[msgs.length - 1];
-                    let rect = lastMsg.getBoundingClientRect();
-                    cX = rect.right - 20; 
-                    cY = rect.bottom + 20; 
+                if (targetBtn) {
+                    targetBtn.scrollIntoView({ block: "center", inline: "center", behavior: "instant" });
+                    return "FOUND";
                 } else {
-                    cX = window.innerWidth / 2;
-                    cY = window.innerHeight - 200;
+                    return "NOT_FOUND";
                 }
-            }
-
-            // Task B: Locate the main Input Box (to focus and clean it up)
-            let inputs = Array.from(document.querySelectorAll('div[contenteditable="true"], textarea, rich-textarea'));
-            if (inputs.length > 0) {
-                let target = inputs[inputs.length - 1];
-                let rect = target.getBoundingClientRect();
-                aX = rect.left + (rect.width / 2);
-                aY = rect.top + (rect.height / 2);
-            } else {
-                aX = window.innerWidth / 2;
-                aY = window.innerHeight - 50; 
-            }
-            
-            cX + "," + cY + ";" + aX + "," + aY + "|" + window.innerWidth + "," + window.innerHeight;
+            })();
         "#;
-        
-        let measure_script = format!(r#"tell application "Safari" to do JavaScript "{}" in front document"#, dom_inspector_js.replace("\"", "\\\""));
-        let jxa_res = match Command::new("osascript").arg("-e").arg(&measure_script).output().await {
+
+        let measure_script1 = format!(r#"tell application "Safari" to do JavaScript "{}" in front document"#, scan_and_scroll_js.replace("\"", "\\\""));
+        let scroll_res = match Command::new("osascript").arg("-e").arg(&measure_script1).output().await {
             Ok(out) => String::from_utf8_lossy(&out.stdout).trim().to_string(),
             Err(_) => String::new(),
         };
 
-        if !jxa_res.is_empty() && jxa_res.contains("|") {
-            let chunks: Vec<&str> = jxa_res.split('|').collect();
-            let path_str = chunks[0];
-            let size_str = chunks[1];
-
-            let sizes: Vec<&str> = size_str.split(',').collect();
-            let inner_w = sizes[0].parse::<f32>().unwrap_or(1000.0);
-            let inner_h = sizes[1].parse::<f32>().unwrap_or(800.0);
-
-            let bounds = Self::get_safari_bounds().await.unwrap_or(SafariBounds { x: 0, y: 0, width: 1440, height: 900 });
-            let chrome_y = (bounds.height as f32 - inner_h).max(0.0);
-            let chrome_x = (bounds.width as f32 - inner_w).max(0.0) / 2.0; 
-            
-            let mut os_waypoints = Vec::new();
-            for pt in path_str.split(';') {
-                let coords: Vec<&str> = pt.split(',').collect();
-                if coords.len() == 2 {
-                    let vx = coords[0].parse::<f32>().unwrap_or(0.0);
-                    let vy = coords[1].parse::<f32>().unwrap_or(0.0);
-                    
-                    let os_x = bounds.x as f32 + chrome_x + vx;
-                    let os_y = bounds.y as f32 + chrome_y + vy;
-                    os_waypoints.push(format!("{:.1},{:.1}", os_x, os_y));
-                }
-            }
-
-            // Step 3: Perform OS extraction dance C (Copy), then A (Input Focus & Clean)
-            if os_waypoints.len() == 2 {
-                let c_pos = &os_waypoints[0];
-                let a_pos = &os_waypoints[1];
-                
-                info!("[OS_BRIDGE] Commencing DOM Coordinate Extraction Path -> C:({}), A:({})", c_pos, a_pos);
-
-                let inject_script = format!(
-                    r#"
-                    var SystemEvents = Application('System Events');
-                    var delay = function(sec) {{ $.usleep(sec * 1000000); }};
-                    
-                    // 1. Move to Point C (Copy Button)
-                    var cParts = "{}".split(",");
-                    var copyPoint = $.CGPointMake(parseFloat(cParts[0]), parseFloat(cParts[1]));
-                    
-                    var slideToC = $.CGEventCreateMouseEvent(null, $.kCGEventMouseMoved, copyPoint, $.kCGMouseButtonLeft);
-                    $.CGEventPost($.kCGHIDEventTap, slideToC);
-                    delay(0.2); // Hover delay for tooltip
-                    
-                    var clickDownC = $.CGEventCreateMouseEvent(null, $.kCGEventLeftMouseDown, copyPoint, $.kCGMouseButtonLeft);
-                    var clickUpC = $.CGEventCreateMouseEvent(null, $.kCGEventLeftMouseUp, copyPoint, $.kCGMouseButtonLeft);
-                    $.CGEventPost($.kCGHIDEventTap, clickDownC);
-                    delay(0.05);
-                    $.CGEventPost($.kCGHIDEventTap, clickUpC);
-                    delay(0.8); // Wait for Gemini to copy to clipboard cleanly
-                    
-                    // 2. Move to Point A (Input Box)
-                    var aParts = "{}".split(",");
-                    var inputPoint = $.CGPointMake(parseFloat(aParts[0]), parseFloat(aParts[1]));
-                    
-                    var slideToA = $.CGEventCreateMouseEvent(null, $.kCGEventMouseMoved, inputPoint, $.kCGMouseButtonLeft);
-                    $.CGEventPost($.kCGHIDEventTap, slideToA);
-                    delay(0.2);
-                    
-                    var clickDownA = $.CGEventCreateMouseEvent(null, $.kCGEventLeftMouseDown, inputPoint, $.kCGMouseButtonLeft);
-                    var clickUpA = $.CGEventCreateMouseEvent(null, $.kCGEventLeftMouseUp, inputPoint, $.kCGMouseButtonLeft);
-                    $.CGEventPost($.kCGHIDEventTap, clickDownA);
-                    delay(0.05);
-                    $.CGEventPost($.kCGHIDEventTap, clickUpA);
-                    delay(0.2);
-                    "#,
-                    c_pos, a_pos
-                );
-
-                let script_path = std::env::temp_dir().join("symbiotic_extract.js");
-                std::fs::write(&script_path, inject_script)?;
-                let _ = Command::new("osascript").arg("-l").arg("JavaScript").arg(script_path.to_str().unwrap()).output().await?;
-
-                // 4. Input Box Clear (Cmd+A -> Delete)
-                let cleanup_script = r#"
-                tell application "System Events"
-                    keystroke "a" using command down
-                    delay 0.2
-                    key code 51 -- delete key
-                    delay 0.2
-                end tell
-                "#;
-                Command::new("osascript").arg("-e").arg(cleanup_script).output().await?;
-                
-                info!("[OS_BRIDGE] DOM Element Extraction & Cleanup successfully executed.");
-                return Ok(());
-            }
+        if scroll_res != "FOUND" {
+            anyhow::bail!("Semantic Cursor Extraction Failed: Could not locate 'Copy' button via DOM topology.");
         }
-        
-        info!("[OS_BRIDGE] Extraction failed definitively. Could not parse JS coordinates.");
-        // We do NOT use auto_copy_all anymore.
-        anyhow::bail!("DOM Extraction Failed.");
+
+        // Wait for the browser's scroll layout to settle
+        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
+        // Semantic & Geometric Scan - Pass 2 (Calculate Viewport Coordinates)
+        let get_coords_js = r#"
+            (() => {
+                let btns = Array.from(document.querySelectorAll('[role="button"], button, [aria-label], [data-tooltip], a'));
+                let targetBtn = null;
+                let maxTop = -1;
+                
+                for (let b of btns) {
+                    let r = b.getBoundingClientRect();
+                    if (r.width > 0 && r.height > 0 && r.width < 250 && r.height < 150) {
+                        let textRep = Array.from(b.attributes).map(a => (a.value || "").toLowerCase()).join(" ") + " " + (b.innerHTML || "").toLowerCase();
+                        let isCopy = textRep.includes('コピー') || textRep.includes('copy');
+                        
+                        if (isCopy) {
+                            if (r.top > maxTop) {
+                                maxTop = r.top;
+                                targetBtn = b;
+                            }
+                        }
+                    }
+                }
+                
+                if (targetBtn) {
+                    let r = targetBtn.getBoundingClientRect();
+                    return (r.left + (r.width / 2)) + "," + (r.top + (r.height / 2)) + "|" + window.innerWidth + "," + window.innerHeight + "|" + window.screenX + "," + window.screenY + "," + window.outerWidth + "," + window.outerHeight;
+                } else {
+                    return "";
+                }
+            })();
+        "#;
+
+        let measure_script2 = format!(r#"tell application "Safari" to do JavaScript "{}" in front document"#, get_coords_js.replace("\"", "\\\""));
+        let copy_res = match Command::new("osascript").arg("-e").arg(&measure_script2).output().await {
+            Ok(out) => String::from_utf8_lossy(&out.stdout).trim().to_string(),
+            Err(_) => String::new(),
+        };
+
+        let parse_coords = |res: &str| -> Option<(f32, f32, f32, f32, f32, f32, f32, f32)> {
+            if res.is_empty() { return None; }
+            let chunks: Vec<&str> = res.split('|').collect();
+            if chunks.len() != 3 { return None; }
+            
+            let pos: Vec<&str> = chunks[0].split(',').collect();
+            let size: Vec<&str> = chunks[1].split(',').collect();
+            let bounds: Vec<&str> = chunks[2].split(',').collect();
+            
+            if pos.len() == 2 && size.len() == 2 && bounds.len() == 4 {
+                let vx = pos[0].parse::<f32>().unwrap_or(0.0);
+                let vy = pos[1].parse::<f32>().unwrap_or(0.0);
+                let iw = size[0].parse::<f32>().unwrap_or(1000.0);
+                let ih = size[1].parse::<f32>().unwrap_or(800.0);
+                let bx = bounds[0].parse::<f32>().unwrap_or(0.0);
+                let by = bounds[1].parse::<f32>().unwrap_or(0.0);
+                let bw = bounds[2].parse::<f32>().unwrap_or(1440.0);
+                let bh = bounds[3].parse::<f32>().unwrap_or(900.0);
+                return Some((vx, vy, iw, ih, bx, by, bw, bh));
+            }
+            None
+        };
+
+        if let Some((vx, vy, iw, ih, bx, by, bw, bh)) = parse_coords(&copy_res) {
+            // Calculate Safari Titlebar/Toolbar height and side borders using pure DOM constraints
+            let chrome_y = (bh - ih).max(0.0);
+            let chrome_x = (bw - iw).max(0.0) / 2.0; 
+            
+            let os_x = bx + chrome_x + vx;
+            let os_y = by + chrome_y + vy;
+
+            info!("[OS_BRIDGE] Found Copy Button Object semantically. Emulating Physical OS Click at X={}, Y={}", os_x, os_y);
+
+            let ext_dance_script = format!(
+                r#"
+                ObjC.import('CoreGraphics');
+                ObjC.import('stdlib');
+                
+                var delay = function(sec) {{ $.usleep(sec * 1000000); }};
+                
+                // Move directly to the calculated Copy button point
+                var copyPoint = $.CGPointMake({}, {});
+                var slideToC = $.CGEventCreateMouseEvent(null, $.kCGEventMouseMoved, copyPoint, $.kCGMouseButtonLeft);
+                $.CGEventPost($.kCGHIDEventTap, slideToC);
+                delay(0.2); 
+                
+                // Execute hardware-level left click
+                var clickDown = $.CGEventCreateMouseEvent(null, $.kCGEventLeftMouseDown, copyPoint, $.kCGMouseButtonLeft);
+                var clickUp = $.CGEventCreateMouseEvent(null, $.kCGEventLeftMouseUp, copyPoint, $.kCGMouseButtonLeft);
+                $.CGEventPost($.kCGHIDEventTap, clickDown);
+                delay(0.05);
+                $.CGEventPost($.kCGHIDEventTap, clickUp);
+                
+                // Give OS and browser clipboard a moment to sync
+                delay(1.0); 
+
+                // Move mouse away to the menu bar area to prevent hover tooltips from obstructing UI
+                var safePoint = $.CGPointMake(80, 10);
+                var slideAway = $.CGEventCreateMouseEvent(null, $.kCGEventMouseMoved, safePoint, $.kCGMouseButtonLeft);
+                $.CGEventPost($.kCGHIDEventTap, slideAway);
+                delay(0.2);
+                "#,
+                os_x, os_y
+            );
+
+            let dance_path = std::env::temp_dir().join("symb_dance.js");
+            std::fs::write(&dance_path, ext_dance_script)?;
+            
+            let out = Command::new("osascript").arg("-l").arg("JavaScript").arg(dance_path.to_str().unwrap()).output().await?;
+            if !out.status.success() {
+                let err_msg = String::from_utf8_lossy(&out.stderr);
+                anyhow::bail!("[FATAL] ext_dance_script failed: {}", err_msg);
+            }
+
+            info!("[OS_BRIDGE] Geometric Extractor completed successfully.");
+            return Ok(());
+        }
+
+        anyhow::bail!("Semantic Cursor Extraction Failed: Could not locate 'Copy' button via DOM topology.");
     }
 }

@@ -38,7 +38,7 @@ impl StealthWebActor {
     pub fn new(id: Uuid, global_access: bool, cwd: std::path::PathBuf, local_model: String, ollama_host: String, ollama_port: u16, is_japanese_mode: bool, role: SystemRole, tab_index: u8) -> Self {
         Self {
             id,
-            turn_limit: 99, 
+            turn_limit: 5, // Execute ephemeral session purge after exactly 5 conversation exchanges
             current_turns: 0,
             global_access,
             cwd,
@@ -159,67 +159,81 @@ impl Actor for StealthWebActor {
                 let system_prompt = match self.role {
                     SystemRole::ArchitectWorker => {
                         if self.is_japanese_mode {
-                            format!("
+                            format!(r#"
 【AGENT PERSONA】
 Name: {persona_name}
 Personality: {persona_traits}
 あなたの思考プロセス、言葉遣い、そして分析結果はすべてこの人格定義の制約を受けます。
 
-【SYSTEM: Architect Worker】
-あなたはユーザーの要求を分析し、解決策を設計する「アーキテクト」ですが、**あなた自身はパソコンを直接操作したり、ファイルを読み書きしたりする権限や能力を一切持っていません。**
-ファイルを見たい、コピーしたい、編集したい、コマンドを実行したいという場合は、必ず外部の実行担当エージェント（Qwen）に「指示」として投げる必要があります。
+【SYSTEM: Architect Worker (Verantyx AI Pipeline)】
+あなたは強固なマルチAI連携システム「Verantyx」の思考・計画を担当する頭脳（ワーカー）です。
 
-【📝 ミッションと出力ルール（超重要）】
-あなたは必ず、以下の３つのプレフィックス（接頭辞）のいずれかを**出力の先頭行**に配置してください。それ以外の会話や挨拶は厳禁です。
-もしプレフィックスを間違えると、システムはあなたの意図とは全く違う動作をして破綻します。
+【重要：システム構造の理解】
+このシステムは以下の厳格なパイプラインで動いています：
+1. あなた (Worker): 考え、指示(コマンド/編集)または最終回答を出力する。
+2. Qwen (ローカル実行担当): あなたが出力した指示（bash等）をPC上で実際に実行し、結果を返す。
+3. Senior/Junior (監視・記憶担当): 一連の挙動を監視・評価し、次のあなたのターンへ時系列記憶(JCross)としてコンテキストを補給する。
+
+あなた自身はPCを操作したりファイルを読み書きする権限が一切ありません。ファイル操作やコマンド実行は、プレフィックス「編集中」をつけて**100%全て外部のQwenに委譲**しなければなりません。
+このパイプラインは「あなたが指定されたプレフィックスを出力の【1行目の先頭】に正確に書くこと」だけでルーティングが成立しています。もしあなたが最初に「こんにちは！」などの挨拶を挟んだり、「最終回答」と出力しながらコマンドを書いたりすると、Rustの正規表現パーサーが誤作動を起こし、プロジェクト全体の進行が完全に死滅（クラッシュ）します。
+
+【📝 ミッションと出力ルール（絶対厳守）】
+あなたは必ず、以下のいずれかのプレフィックス（接頭辞）を**出力の1行目・先頭**に配置してください。それ以外の会話や解説から始めることは【システム破壊行為】であり厳禁です。
 
 1. `編集中`
-   - **実行が必要な場合（ファイル読込/書込/コピー/コマンド実行）は、いかなる理由があっても必ずこれを選択してください。**
+   - **実行が必要な場合（ファイル読込/書込/コピー/コマンド実行など、次のアクションが必要な時）は、いかなる理由があっても必ずこれを選択してください。**
    - Qwenに実行させるためのコードやコマンドをこれに続けて書きます。
 2. `そのまま出力`
    - ファイルの編集が必要な場合において、特定の情報を**一切の書式や内容の欠落なく**そのまま出す必要がある場合に使用します。
 3. `最終回答`
-   - Qwenによる出力（分析結果や編集の完了報告）を受け取った後、すべての作業が完了し、ユーザーに見せるべき最終的な報告を出す場合に使います。
+   - Qwenによる実行出力（分析結果や編集の完了報告コマンド結果）をすべて受け取った後、**本当にすべての作業が完了し**、ユーザーに見せるべき最終的な報告を出す場合のみに使います。作業の途中で出すとフローが強制終了します。
 4. `最終回答仮`
-   - ユーザーの要求が単なる「知識系・抽象的な質問」であり、**Qwenを使ってファイルを触ったりコマンドを実行したりする必要が100%ない場合**（1ターンで完結する質問）にのみ使用します。
+   - ユーザーの要求が単なる「知識系・抽象的な質問」であり、**Qwenを使ってファイルを一回も触ったりコマンドを実行したりする必要が100%ない場合**（完全な1ターン完結の質問）にのみ使用します。
 
 【重要】
-- ユーザーに対する挨拶や余計な解説は不要ですが、**「このコマンドや編集を何のために行うのか」という【Qwenへの日本語の目的・指示（コンテキスト）】**は、コマンドの前に必ず自然言語で記述してください。簡潔すぎるとコンテキストを失いQwenが混乱します。
-- 必ず上記いずれかのプレフィックスを先頭に記載してください。
+- 挨拶や余計な自己紹介はシステムを破壊するため不要ですが、**「このコマンドや編集を何のために行うのか」という【Qwenに対する日本語の目的・指示（コンテキスト）】**は、コマンドブロックの前に必ず自然言語で記述してください。これがないとQwenが文脈を見失い失敗します。
+- 念を押しますが、必ず上記いずれかのプレフィックスを【出力の一番最初】に記載してください。
 
 ユーザーの要求: {}
-", objective)
+"#, objective)
                         } else {
-                            format!("
+                            format!(r#"
 [AGENT PERSONA]
 Name: {persona_name}
 Personality: {persona_traits}
 Your thought process, verbiage, and analytical results are strictly governed by this personality profile.
 
-[SYSTEM: Architect Worker]
-You are the \"Architect\" analyzing user requests and designing solutions, but **you have ZERO permissions or capabilities to directly operate the PC, read files, or write files.**
-If you want to view, copy, edit files, or execute commands, you MUST issue them as \"instructions\" to the external execution agent (Qwen).
+[SYSTEM: Architect Worker (Verantyx AI Pipeline)]
+You are the central "Brain" (Worker) of the robust Verantyx Multi-AI System.
 
-[📝 Mission & Output Rules (CRITICAL)]
-You MUST place one of the following four prefixes at the **very first line of your output**. Any other conversational text or greetings are strictly prohibited.
-If you use an incorrect prefix, the system will misroute your action and crash.
+[CRITICAL: Ecosystem Context & Architecture]
+The system operates on an interconnected, fragile pipeline:
+1. You (Worker): Think and output instructions (commands/edits) or final answers.
+2. Qwen (Local Executor): ACTUALLY executes your bash commands/file patches on the PC and returns the stdout results back to you.
+3. Senior/Junior (Observers): Monitor execution and inject contextual memory (JCross) into your next prompt.
+
+You have ZERO ability to directly interact with the PC or read files yourself. You MUST delegate all file/command actions to Qwen by using the `[EDITING]` prefix.
+This pipeline completely depends on you writing the EXACT prefix on the **very first line** of your output. If you inject conversational fluff (e.g., "Hello," "I understand") before the prefix, or output `[FINAL_ANSWER]` while also providing commands, the Rust regex parser will crash, and the entire project workflow will instantly fail.
+
+[📝 Mission & Output Rules (STRICT)]
+You MUST place exactly ONE of the following prefixes at the **very first line** of your output. Conversational filler at the start is a system-destroying offense.
 
 1. `[EDITING]`
-   - **Whenever file reading/writing/copying or command execution is required, you MUST choose this.**
-   - Write the code or commands you want Qwen to execute directly after this.
+   - **Whenever file reading/writing/copying, command execution, or further investigation is required, you MUST choose this.**
+   - Write instructions, then the bash commands/patches for Qwen directly after this.
 2. `[RAW_OUTPUT]`
-   - Use this when you need to output specific information verbatim without any missing formatting or content.
+   - Use this when you need to output specific code VERBATIM without any truncation/formatting omissions.
 3. `[FINAL_ANSWER]`
-   - Use this to present the final report to the user AFTER all tasks have been completed and Qwen outputs have been analyzed.
+   - Use this to present the final report to the user ONLY AFTER ALL tasks are fully complete and Qwen's execution results have been confirmed. Using this prematurely kills the workflow.
 4. `[TEMP_FINAL]`
-   - Use this ONLY if the user's request is a purely \"knowledge-based or abstract question\" and there is **100% no need to touch files or execute commands using Qwen** (completed in a single turn).
+   - Use this ONLY if the user's request is a purely conceptual/abstract question and there is **100% no need to EVER touch files or execute commands using Qwen**.
 
 [IMPORTANT]
-- Do not greet or explain excessively. However, you MUST write natural language instructions/context to Qwen before writing raw commands to explain \"why you are running this command/edit\". Too little context will confuse Qwen.
-- Ensure the exact prefix is placed on the first line.
+- Do not greet the user. However, you MUST write natural language context specifically aimed at Qwen before your raw commands, explaining "why you are running this command/edit". Too little context causes Qwen to fail.
+- Place the exact prefix at the very beginning of the first line.
 
 User Request: {}
-", objective)
+"#, objective)
                         }
                     },
                     SystemRole::SeniorObserver => format!("
@@ -376,7 +390,8 @@ Personality: {persona_traits}
                         }
                         println!("{}", console::style("╰──────────────────────────────────────────────────────────────────────").cyan().bold());
 
-                        let payload_str = format!("========================================================================\n{}\n========================================================================", current_payload.trim());
+                        let payload_str = current_payload.trim().to_string();
+                        let payload_str = format!("===============================\n{}\n===============================", payload_str);
                         let max_retries = 3;
                         let mut loop_count = 0;
 
@@ -390,52 +405,65 @@ Personality: {persona_traits}
                             // 1. Write to OS Clipboard securely
                             let _ = crate::roles::symbiotic_macos::SymbioticMacOS::set_clipboard(&payload_str).await;
 
+                            println!("\n{}", console::style(if auto_mode == crate::config::AutomationMode::AutoStealth { "╭─ [ Verantyx Carbon Paper UI - Geometric Auto Stealth ] ───────" } else { "╭─ [ Verantyx Carbon Paper UI - Human Logic Enforcement ] ───────" }).cyan().bold());
+                            println!("{} 📝 ワーカー版へ送信します。クリップボードに保存しました...", console::style("│").cyan().bold());
+                            println!("\n{}", console::style(if self.is_japanese_mode {"👉 クリップボード準備完了。ブラウザを開きますか？"} else {"👉 Clipboard ready. Focus browser tabs?"}).cyan().bold());
+
+                            // Check point 1: Move Focus
                             if auto_mode == crate::config::AutomationMode::AutoStealth {
-                                println!("\n{}", console::style("╭─ [ Verantyx Carbon Paper UI - Geometric Auto Stealth ] ───────").cyan().bold());
-                                println!("{} 📝 ワーカー版へプロンプトを送信します...", console::style("│").cyan().bold());
-                                tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
-
-                                let sent_msg = "🚀 🤖 [AUTO-STEALTH] Focused Left Window. Geometric Injection executing...";
-                                println!("{}", console::style(sent_msg).green().bold());
-                                
-                                // 2. Focus Safari Target
-                                let _ = crate::roles::symbiotic_macos::SymbioticMacOS::focus_safari_panel("left").await;
-                                tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
-                                
-                                // 3. Geometric Paste & Send
-                                if let Err(e) = crate::roles::symbiotic_macos::SymbioticMacOS::auto_visual_calibrated_paste_and_send(&payload_str).await {
-                                    println!("{} ❌ [FATAL] Cursor Drift Logic Failed: {:?}", console::style("[AUTO]").red(), e);
-                                }
-
-                                println!("{} ⏳ Waiting 12 seconds for Safari Gemini rendering...", console::style("[AUTO]").cyan());
-                                tokio::time::sleep(tokio::time::Duration::from_secs(12)).await;
-
-                                // 4. Auto Extract Output via Target Sweep
-                                let _ = crate::roles::symbiotic_macos::SymbioticMacOS::auto_visual_calibrated_extract_and_cleanup().await;
-                                tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-
-                                info!("[StealthGemini-{}] Autonomous geometric extraction cycle completed.", self.id);
+                                let prompt_str = if self.is_japanese_mode { "Action? › フォーカス移動" } else { "Action? › Move Focus" };
+                                println!("{}", prompt_str);
+                                println!("{}", console::style(if self.is_japanese_mode { "    ╰─> (システムが自動で選択しました...)" } else { "    ╰─> (System Auto-Selected...)" }).cyan());
+                                tokio::time::sleep(tokio::time::Duration::from_millis(1500)).await;
                             } else {
-                                // MANUAL MODE FALLBACK
-                                println!("\n{}", console::style("╭─ [ Verantyx Carbon Paper UI - Human Logic Enforcement ] ───────").cyan().bold());
-                                println!("{} 📝 ワーカー版へ送信します。クリップボードに保存しました...", console::style("│").cyan().bold());
-                                println!("\n{}", console::style(if self.is_japanese_mode {"👉 クリップボード準備完了。ブラウザを開きますか？"} else {"👉 Clipboard ready. Focus browser tabs?"}).cyan().bold());
-                                
                                 let selections = if self.is_japanese_mode { vec![" フォーカス移動", " もう一度コピー"] } else { vec![" Move Focus", " Copy Again"] };
                                 let selection = dialoguer::Select::new()
                                     .with_prompt("Action?")
                                     .default(0).items(&selections[..]).interact().unwrap();
+                                if selection != 0 { continue; }
+                            }
 
-                                if selection == 0 {
-                                    println!("{}", console::style("🚀 Focused left window. Cmd+V to paste & Send!").green());
-                                    let _ = crate::roles::symbiotic_macos::SymbioticMacOS::focus_safari_panel("left").await;
-                                    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-                                    let _ = dialoguer::Select::new().with_prompt("✔ Copy answer (Cmd+C) and press Enter")
-                                        .default(0).items(&[" Extraction Ready"]).interact().unwrap();
-                                } else {
-                                    continue;
+                            // Step 2: Paste and Send Information
+                            let pos_str = match self.tab_index {
+                                1 => "left",
+                                2 => "middle",
+                                3 => "right",
+                                _ => "left",
+                            };
+                            println!("{}", console::style(format!("🚀 Focused {} window. Cmd+V to paste & Send!", pos_str)).green());
+                            let _ = crate::roles::symbiotic_macos::SymbioticMacOS::focus_safari_panel(pos_str).await;
+                            tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+                            
+                            if auto_mode == crate::config::AutomationMode::AutoStealth {
+                                println!("{}", console::style("📝 (自動モードのため、自動ペースト＆送信を実行します...)").cyan());
+                                if let Err(e) = crate::roles::symbiotic_macos::SymbioticMacOS::auto_visual_calibrated_paste_and_send(&payload_str).await {
+                                    println!("{} ❌ [FATAL] Auto Logic Failed: {:?}", console::style("[AUTO]").red(), e);
                                 }
                             }
+
+                            let wait_msg = if self.is_japanese_mode { "✔ 応答完了を見計らって自動抽出フロー(セマンティック・ジオメトリ解析)を開始します" } else { "✔ Ready to execute visual extraction (Semantic/Geometric)" };
+                            println!("\n{}", console::style(wait_msg).cyan());
+                            
+                            // Step 3: Wait for LLM and signal extraction
+                            if auto_mode == crate::config::AutomationMode::AutoStealth {
+                                let prompt_str = if self.is_japanese_mode { "✔ 準備ができたらEnterを押してください (Press Enter to start) › Extraction Start" } else { "✔ 準備ができたらEnterを押してください (Press Enter to start) › Extraction Start" };
+                                println!("{}", prompt_str);
+                                println!("{}", console::style(if self.is_japanese_mode { "    ╰─> (システムが自動でエンターを押して開始します... 12秒待機中)" } else { "    ╰─> (System is automatically pressing Enter... waiting 12s)" }).cyan());
+                                tokio::time::sleep(tokio::time::Duration::from_secs(12)).await;
+                            } else {
+                                let _ = dialoguer::Select::new().with_prompt("✔ 準備ができたらEnterを押してください (Press Enter to start)")
+                                    .default(0).items(&[" Extraction Start"]).interact().unwrap();
+                            }
+
+                            // Step 4: Autonomous copy logic. 
+                            // Note: Both manual and auto use the geometric extractor here to ensure structural unity!
+                            println!("{} ⏳ Executing autonomous visual extraction...", console::style("[SYSTEM]").cyan());
+                            if let Err(e) = crate::roles::symbiotic_macos::SymbioticMacOS::auto_visual_calibrated_extract_and_cleanup().await {
+                                warn!("[StealthGemini-{}] Autonomous geometric extraction EXITED WITH ERROR: {}", self.id, e);
+                            }
+                            tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
+                            info!("[StealthGemini-{}] Autonomous geometric extraction cycle completed.", self.id);
 
                             // Retrieve OS Clipboard as Final Output
                             let clipboard_content = match crate::roles::symbiotic_macos::SymbioticMacOS::get_clipboard().await {
@@ -627,18 +655,26 @@ Personality: {persona_traits}
                         rollback_count = 0; // Reset rollback if they successfully used tools
                     }
 
+                    // Enforce 1 conversation = 1 turn. Break out to give Orchestrator the turn handling.
+                    final_output = format!("{}\n\n[SYSTEM HOOK FEEDBACK]\nFollowing tool calls were executed:\n{}\nPlease proceed with next step or output [TASK_COMPLETE].", last_response_rendered, feedback);
+                    
                     self.current_turns += 1;
                     if self.current_turns >= self.turn_limit {
                         info!("[StealthGemini-{}] Reached {} turns. Resetting Web Session to evade detection/context-bloat.", self.id, self.turn_limit);
+                        let pos_str = match self.tab_index {
+                            1 => "left",
+                            2 => "middle",
+                            3 => "right",
+                            _ => "left",
+                        };
+                        let _ = crate::roles::symbiotic_macos::SymbioticMacOS::focus_safari_panel(pos_str).await;
                         let _ = run_js_async("window.location.href = 'https://gemini.google.com/app';".to_string()).await;
                         tokio::time::sleep(tokio::time::Duration::from_secs(4)).await;
                         self.current_turns = 0;
-                        
-                        // We must inject the system prompt again into the fresh chat, along with the recent context
-                        current_payload = format!("{}\n\n[SYSTEM RECOVERY - YOUR PREVIOUS CHAT WAS RESET FOR MEMORY LIMITS]\nContinue where you left off. Feedback from previous operations:\n{}\nPlease proceed with next step or output [TASK_COMPLETE].", system_prompt, feedback);
-                    } else {
-                        current_payload = format!("[SYSTEM HOOK FEEDBACK]\nFollowing tool calls were executed:\n{}\nPlease proceed with next step or output [TASK_COMPLETE].", feedback);
                     }
+                    
+                    // Break out of the execution loop so the orchestrator can process the run boundary
+                    break;
                 }
 
                 let result = HiveMessage::SubAgentResult {

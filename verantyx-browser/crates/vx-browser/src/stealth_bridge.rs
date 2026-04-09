@@ -57,6 +57,10 @@ pub fn run_event_loop(visible: bool) -> anyhow::Result<()> {
 
     let init_js = r#"
         window.addEventListener('DOMContentLoaded', () => {
+            if (window.ipc && window.ipc.postMessage) {
+                window.ipc.postMessage('PAGE_READY:1');
+            }
+            
             let timeout = null;
             const config = { childList: true, subtree: true, characterData: true };
             const callback = function(mutationsList, observer) {
@@ -112,6 +116,9 @@ pub fn run_event_loop(visible: bool) -> anyhow::Result<()> {
                     markdown: Some(markdown),
                 };
                 println!("{}", serde_json::to_string(&resp).unwrap()); std::io::stdout().flush().unwrap();
+            } else if body.starts_with("PAGE_READY:") {
+                // Signals that the background blank DOM is fully loaded and ready for javascript evaluation
+                println!(r#"{{"status":"ok","message":"ready"}}"#); std::io::stdout().flush().unwrap();
             } else if body.starts_with("EVAL_RES:") {
                 let res = &body[9..];
                 let resp = BridgeResponse {
@@ -134,10 +141,10 @@ pub fn run_event_loop(visible: bool) -> anyhow::Result<()> {
                 println!("{}", serde_json::to_string(&resp).unwrap()); std::io::stdout().flush().unwrap();
             }
         })
+        .with_html("<html><body><div id='vx-ready'></div></body></html>")
         .build(&window)?;
 
-    // Acknowledge readiness to TypeScript Orchestrator
-    println!(r#"{{"status":"ok","message":"ready"}}"#); std::io::stdout().flush().unwrap();
+    // The readiness is now sent via PAGE_READY IPC trigger, NOT here synchronously.
 
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Wait;

@@ -241,6 +241,18 @@ If no mapping is needed, set needs_mapping to false.
             self.config.agent.primary_model.clone()
         );
 
+        let mut worker_actor = ronin_hive::roles::stealth_gemini::StealthWebActor::new(
+            uuid::Uuid::new_v4(),
+            self.config.sandbox.allow_filesystem_escape,
+            runner_cfg.cwd.clone(),
+            self.config.agent.primary_model.clone(),
+            self.config.providers.ollama.host.clone(),
+            self.config.providers.ollama.port,
+            self.config.agent.system_language == ronin_core::domain::config::SystemLanguage::Japanese,
+            ronin_hive::roles::stealth_gemini::SystemRole::ArchitectWorker,
+            1,
+        );
+
         let mut senior_actor = ronin_hive::roles::stealth_gemini::StealthWebActor::new(
             uuid::Uuid::new_v4(),
             self.config.sandbox.allow_filesystem_escape,
@@ -250,10 +262,20 @@ If no mapping is needed, set needs_mapping to false.
             self.config.providers.ollama.port,
             self.config.agent.system_language == ronin_core::domain::config::SystemLanguage::Japanese,
             ronin_hive::roles::stealth_gemini::SystemRole::SeniorObserver,
-            1,
+            2,
         );
 
-        let mut junior_actor: Option<ronin_hive::roles::stealth_gemini::StealthWebActor> = None;
+        let mut junior_actor: Option<ronin_hive::roles::stealth_gemini::StealthWebActor> = Some(ronin_hive::roles::stealth_gemini::StealthWebActor::new(
+            uuid::Uuid::new_v4(),
+            self.config.sandbox.allow_filesystem_escape,
+            runner_cfg.cwd.clone(),
+            self.config.agent.primary_model.clone(),
+            self.config.providers.ollama.host.clone(),
+            self.config.providers.ollama.port,
+            self.config.agent.system_language == ronin_core::domain::config::SystemLanguage::Japanese,
+            ronin_hive::roles::stealth_gemini::SystemRole::JuniorObserver,
+            3,
+        ));
 
         if runner_cfg.force_stealth {
             final_objective = format!("[STEALTH_FORCE] {}", final_objective);
@@ -273,14 +295,15 @@ If no mapping is needed, set needs_mapping to false.
         let mut final_response = String::new();
         let mut step_count = 0;
         let mut current_objective = final_objective;
-        let mut next_tab_index = 2; // Junior will spawn on tab 2
+        let mut next_tab_index = 3; // Junior will spawn on tab 3
 
         loop {
             step_count += 1;
             
             // Check Sliding Window Expiration
-            if senior_actor.current_turns >= senior_actor.turn_limit {
-                info!("[Runner] Senior reached turn limit. Triggering Sliding Window Handover...");
+            if worker_actor.current_turns >= worker_actor.turn_limit {
+                info!("[Runner] Memory limit reached. Handing over Swarm tokens and purging old memory context...");
+                
                 // Junior promotes to Senior
                 if let Some(mut j) = junior_actor.take() {
                     j.role = ronin_hive::roles::stealth_gemini::SystemRole::SeniorObserver;
@@ -299,46 +322,60 @@ If no mapping is needed, set needs_mapping to false.
                     ronin_hive::roles::stealth_gemini::SystemRole::JuniorObserver,
                     next_tab_index,
                 ));
-                next_tab_index = if next_tab_index == 1 { 2 } else { 1 };
+                next_tab_index = if next_tab_index == 2 { 3 } else { 2 };
             }
 
+            // Stop spinner permanently before entering concurrent TUI interaction steps
+            spinner.finish_and_clear();
+
+            // Run Worker first
+            let env_worker = ronin_hive::actor::Envelope {
+                message_id: uuid::Uuid::new_v4(),
+                sender: "System".to_string(),
+                recipient: "ArchitectWorker".to_string(),
+                payload: serde_json::to_string(&ronin_hive::messages::HiveMessage::Objective(current_objective.clone()))?,
+            };
+            
+            info!("[Runner] Executing Worker Actor...");
+            let res_worker = worker_actor.receive(env_worker).await;
+            let out_w = extract_output(res_worker?);
+
+            if out_w.contains("[TASK_COMPLETE]") || out_w.contains("[FINAL_ANSWER]") {
+                info!("[Runner] Task Complete Signal Received from Worker.");
+                final_response = format!("Final Answer:\n{}", out_w);
+                break;
+            }
+
+            // Observers analyze the worker's execution path and logs
             let env_senior = ronin_hive::actor::Envelope {
                 message_id: uuid::Uuid::new_v4(),
                 sender: "System".to_string(),
                 recipient: "SeniorGemini".to_string(),
-                payload: serde_json::to_string(&ronin_hive::messages::HiveMessage::Objective(current_objective.clone()))?,
+                payload: serde_json::to_string(&ronin_hive::messages::HiveMessage::Objective(out_w.clone()))?,
             };
 
             let env_junior = ronin_hive::actor::Envelope {
                 message_id: uuid::Uuid::new_v4(),
                 sender: "System".to_string(),
                 recipient: "JuniorGemini".to_string(),
-                payload: serde_json::to_string(&ronin_hive::messages::HiveMessage::Objective(current_objective.clone()))?,
+                payload: serde_json::to_string(&ronin_hive::messages::HiveMessage::Objective(out_w.clone()))?,
             };
 
-            // Stop spinner permanently before entering concurrent TUI interaction steps
-            spinner.finish_and_clear();
-
-            // Run agents sequentially to avoid CLI Mutex deadlocks during human-in-the-loop interactions
+            // Run observers sequentially to avoid CLI Mutex deadlocks during human-in-the-loop interactions
+            info!("[Runner] Executing Senior Observer...");
             let res_senior = senior_actor.receive(env_senior).await;
-            let res_junior = if let Some(ref mut j) = junior_actor {
-                j.receive(env_junior).await
-            } else {
-                Ok(None)
-            };
-            let (res_senior, res_junior) = (res_senior, res_junior);
-
             let out_s = extract_output(res_senior?);
-            let out_j = extract_output(res_junior?);
-
-            if out_s.contains("[TASK_COMPLETE]") || out_j.contains("[TASK_COMPLETE]") {
-                info!("[Runner] Task Complete Signal Received.");
-                final_response = format!("Senior:\n{}\n\nJunior:\n{}", out_s, out_j);
-                break;
-            }
+            
+            let out_j = if let Some(ref mut j) = junior_actor {
+                info!("[Runner] Executing Junior Observer...");
+                let res_j = j.receive(env_junior).await;
+                extract_output(res_j?)
+            } else {
+                String::new()
+            };
 
             // Fan In: Merge Consensus
-            if let Some(ref mut _j) = junior_actor {
+            if junior_actor.is_some() {
                 info!("[Runner] Consolidating Dual-Observer Reports...");
                 let merged = consensus_actor.merge_observations(&out_s, &out_j).await;
                 
@@ -351,29 +388,8 @@ If no mapping is needed, set needs_mapping to false.
                 current_timeline.push_str(&format!("\n\n-- TURN {} --\n{}", step_count, merged));
                 let _ = tokio::fs::write(&timeline_path, current_timeline).await;
                 
-                // Assign new unified reality as the objective context for next turn
+                // Assign new unified reality as the objective context for next worker turn
                 current_objective = format!("Local System Unified Context:\n{}", merged);
-            } else {
-                // Turn 1 complete, only senior acted. Just log it.
-                let timeline_path = runner_cfg.cwd.join(".ronin").join("timeline.md");
-                let logs = format!("\n\n-- TURN {} --\nObserver A Initial Report:\n{}", step_count, out_s);
-                let _ = tokio::fs::write(&timeline_path, logs).await;
-                current_objective = format!("Local System Unified Context:\n{}", out_s);
-                
-                // Boot Junior!
-                info!("[Runner] Booting Junior Observer for Turn 2...");
-                junior_actor = Some(ronin_hive::roles::stealth_gemini::StealthWebActor::new(
-                    uuid::Uuid::new_v4(),
-                    self.config.sandbox.allow_filesystem_escape,
-                    runner_cfg.cwd.clone(),
-                    self.config.agent.primary_model.clone(),
-                    self.config.providers.ollama.host.clone(),
-                    self.config.providers.ollama.port,
-                    self.config.agent.system_language == ronin_core::domain::config::SystemLanguage::Japanese,
-                    ronin_hive::roles::stealth_gemini::SystemRole::JuniorObserver,
-                    next_tab_index,
-                ));
-                next_tab_index = if next_tab_index == 1 { 2 } else { 1 };
             }
         }
         
