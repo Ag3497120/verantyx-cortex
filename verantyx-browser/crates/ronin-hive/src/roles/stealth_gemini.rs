@@ -152,8 +152,9 @@ impl Actor for StealthWebActor {
                 }
 
                 let cfg = crate::config::VerantyxConfig::load(&self.cwd);
-                let persona_name = cfg.persona.name;
-                let persona_traits = cfg.persona.personality;
+                let persona_name = cfg.persona.name.clone();
+                let persona_traits = cfg.persona.personality.clone();
+                let auto_mode = cfg.automation_mode.clone();
 
                 let system_prompt = match self.role {
                     SystemRole::ArchitectWorker => {
@@ -298,82 +299,15 @@ Personality: {persona_traits}
                 let mut loop_counter = 0;
 
                 if self.js_tx.is_none() {
-                    info!("[StealthGemini-{}] Booting Native vx-browser bridge...", self.id);
-                    let mut browser_process = tokio::process::Command::new("cargo")
-                        .arg("run").arg("-p").arg("vx-browser").arg("--").arg("--bridge").arg("--visible")
-                        .stdin(std::process::Stdio::piped())
-                        .stdout(std::process::Stdio::piped())
-                        .spawn().expect("Failed to start native vx-browser");
+                    let (js_tx, _js_rx) = tokio::sync::mpsc::channel::<(String, tokio::sync::oneshot::Sender<String>)>(32);
+                    
+                    // Native vx-browser dependency has been severed. Defaulting to pure MacOS AppleScript routing.
+                    // Keep dummy channel to satisfy types if needed elsewhere, though unused in the core loop.
 
-                let mut browser_stdin = browser_process.stdin.take().unwrap();
-                let mut browser_stdout = tokio::io::BufReader::new(browser_process.stdout.take().unwrap());
-
-                // Read ready signal
-                let mut ready_line = String::new();
-                use tokio::io::AsyncBufReadExt;
-                let _ = browser_stdout.read_line(&mut ready_line).await;
-                
-                // Force Custom Browser to tile on the Left Half of the screen for Dual-Browser Visualization
-                let align_js = r#"
-                tell application "System Events"
-                    set screenWidth to item 3 of (get bounds of window of desktop)
-                    set screenHeight to item 4 of (get bounds of window of desktop)
-                    set halfWidth to screenWidth / 2
-                    repeat with p in (every process)
-                        try
-                            set w to window "vx-agent-stealth" of p
-                            if w exists then
-                                set position of w to {0, 0}
-                                set size of w to {halfWidth, screenHeight}
-                            end if
-                        end try
-                    end repeat
-                end tell
-                "#;
-                let _ = tokio::process::Command::new("osascript").arg("-e").arg(align_js).output().await;
-                
-                // Allow WebKit engine to fully spin up its internal DOM and IPC bridges
-                // before we send the first eval_js navigation request.
-                tokio::time::sleep(tokio::time::Duration::from_millis(3000)).await;
-                
-                let (js_tx, mut js_rx) = tokio::sync::mpsc::channel::<(String, tokio::sync::oneshot::Sender<String>)>(32);
-
-                tokio::spawn(async move {
-                    use tokio::io::AsyncWriteExt;
-                    while let Some((js, reply)) = js_rx.recv().await {
-                        let safe_js = serde_json::to_string(&js).unwrap_or_else(|_| "\"\"".to_string());
-                        let cmd = format!(r#"{{"cmd":"eval_js","text":{}}}"#, safe_js);
-                        if browser_stdin.write_all(cmd.as_bytes()).await.is_err() { break; }
-                        if browser_stdin.write_all(b"\n").await.is_err() { break; }
-                        
-                        let mut response = String::new();
-                        let timeout_res = tokio::time::timeout(
-                            tokio::time::Duration::from_secs(5),
-                            browser_stdout.read_line(&mut response)
-                        ).await;
-                        
-                        match timeout_res {
-                            Ok(Ok(_)) => {
-                                let _ = reply.send(response);
-                            }
-                            _ => {
-                                // Timeout or error, prevent infinite deadlock
-                                let _ = reply.send("{\"status\":\"eval_err\",\"message\":\"Timeout\"}".to_string());
-                            }
-                        }
-                    }
-                    let _ = browser_process.kill().await;
-                });
-
-                // Navigate immediately to Gemini using the Native Engine
-                    let (nav_tx, nav_rx) = tokio::sync::oneshot::channel();
-                    let _ = js_tx.send(("window.location.href = 'https://gemini.google.com/app'; return 'ok';".to_string(), nav_tx)).await;
-                    let _ = nav_rx.await;
-                    tokio::time::sleep(tokio::time::Duration::from_millis(3000)).await;
                     self.js_tx = Some(js_tx);
                 }
 
-                let js_tx = self.js_tx.clone().unwrap();
+                let _js_tx = self.js_tx.clone().unwrap();
 
                 info!("[StealthGemini-{}] Entering Autonomous Action-Observation Loop...", self.id);
 
@@ -385,28 +319,13 @@ Personality: {persona_traits}
                         break;
                     }
 
-                    let js_tx_clone = js_tx.clone();
                     let run_js_async = |js: String| {
-                        let js_tx_clone = js_tx_clone.clone();
                         async move {
-                            let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
-                            let _ = js_tx_clone.send((js, resp_tx)).await;
-                            match resp_rx.await {
-                                Ok(res) => {
-                                    if res.starts_with("{\"status\":\"eval_ok\",\"message\":\"") {
-                                        let start = "{\"status\":\"eval_ok\",\"message\":\"".len();
-                                        if res.len() > start + 3 {
-                                            let _cleaned = &res[start..res.len()-29]; // approximate stripping, or parse json
-                                            if let Ok(json_val) = serde_json::from_str::<serde_json::Value>(&res) {
-                                                if let Some(msg) = json_val.get("message").and_then(|m| m.as_str()) {
-                                                    return msg.to_string();
-                                                }
-                                            }
-                                        }
-                                    }
-                                    res
-                                },
-                                Err(_) => String::new(),
+                            let script = format!(r#"tell application "Safari" to do JavaScript "{}" in front document"#, js.replace("\"", "\\\""));
+                            if let Ok(out) = tokio::process::Command::new("osascript").arg("-e").arg(&script).output().await {
+                                String::from_utf8_lossy(&out.stdout).trim().to_string()
+                            } else {
+                                String::new()
                             }
                         }
                     };
@@ -457,62 +376,68 @@ Personality: {persona_traits}
                         }
                         println!("{}", console::style("╰──────────────────────────────────────────────────────────────────────").cyan().bold());
 
-                        let payload_str = current_payload.clone();
-                        let max_retries = 5;
+                        let payload_str = format!("========================================================================\n{}\n========================================================================", current_payload.trim());
+                        let max_retries = 3;
                         let mut loop_count = 0;
 
                         loop {
                             loop_count += 1;
                             if loop_count > max_retries {
-                                println!("{}", console::style("❌ [FATAL] Max user intervention retries reached. Aborting task logic...").red());
+                                println!("{}", console::style("❌ [FATAL] Max automation retries reached. Aborting task logic...").red());
                                 break;
                             }
 
                             // 1. Write to OS Clipboard securely
                             let _ = crate::roles::symbiotic_macos::SymbioticMacOS::set_clipboard(&payload_str).await;
 
-                            // 2. Terminal Prompts
-                            println!("\n{}", console::style("╭─ [ Verantyx Carbon Paper UI - Human Logic Enforcement ] ───────").cyan().bold());
-                            println!("{} 📝 これからワーカー版（手足）へプロンプトを送信します。クリップボードに保存します...", console::style("│").cyan().bold());
-                            tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
+                            if auto_mode == crate::config::AutomationMode::AutoStealth {
+                                println!("\n{}", console::style("╭─ [ Verantyx Carbon Paper UI - Geometric Auto Stealth ] ───────").cyan().bold());
+                                println!("{} 📝 ワーカー版へプロンプトを送信します...", console::style("│").cyan().bold());
+                                tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
 
-                            println!("{} ✔ 保存しました！内容は以下の通りです:", console::style("│").green().bold());
-                            println!("{} {}", console::style("│").green(), console::style(payload_str.chars().take(150).collect::<String>() + "...").dim());
-                            println!("{}", console::style("╰───────────────────────────────────────────────────────────────────").cyan().bold());
-
-                            println!("\n{}", console::style("👉 クリップボードの準備が完了しました。送信先のブラウザを開きますか？").cyan().bold());
-                            
-                            let selections = &[" コピー完了・フォーカス移動待ち", " 再度クリップボードにコピーする"];
-                            let selection = dialoguer::Select::new()
-                                .with_prompt("どうしますか？ (矢印キーで選択)")
-                                .default(0)
-                                .items(&selections[..])
-                                .interact()
-                                .unwrap();
-
-                            if selection == 0 {
-                                println!("{}", console::style("🚀 クリップボードにロードしました！ 【左側のワーカー用ウィンドウ】 にフォーカスを移動しました。Cmd+Vを押して送信してください！").green());
+                                let sent_msg = "🚀 🤖 [AUTO-STEALTH] Focused Left Window. Geometric Injection executing...";
+                                println!("{}", console::style(sent_msg).green().bold());
+                                
+                                // 2. Focus Safari Target
                                 let _ = crate::roles::symbiotic_macos::SymbioticMacOS::focus_safari_panel("left").await;
+                                tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+                                
+                                // 3. Geometric Paste & Send
+                                if let Err(e) = crate::roles::symbiotic_macos::SymbioticMacOS::auto_visual_calibrated_paste_and_send(&payload_str).await {
+                                    println!("{} ❌ [FATAL] Cursor Drift Logic Failed: {:?}", console::style("[AUTO]").red(), e);
+                                }
+
+                                println!("{} ⏳ Waiting 12 seconds for Safari Gemini rendering...", console::style("[AUTO]").cyan());
+                                tokio::time::sleep(tokio::time::Duration::from_secs(12)).await;
+
+                                // 4. Auto Extract Output via Target Sweep
+                                let _ = crate::roles::symbiotic_macos::SymbioticMacOS::auto_visual_calibrated_extract_and_cleanup().await;
                                 tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
+                                info!("[StealthGemini-{}] Autonomous geometric extraction cycle completed.", self.id);
                             } else {
-                                println!("{}", console::style("🔄 [もう一度クリップボードに保存] を選択しました。").yellow());
-                                continue;
+                                // MANUAL MODE FALLBACK
+                                println!("\n{}", console::style("╭─ [ Verantyx Carbon Paper UI - Human Logic Enforcement ] ───────").cyan().bold());
+                                println!("{} 📝 ワーカー版へ送信します。クリップボードに保存しました...", console::style("│").cyan().bold());
+                                println!("\n{}", console::style(if self.is_japanese_mode {"👉 クリップボード準備完了。ブラウザを開きますか？"} else {"👉 Clipboard ready. Focus browser tabs?"}).cyan().bold());
+                                
+                                let selections = if self.is_japanese_mode { vec![" フォーカス移動", " もう一度コピー"] } else { vec![" Move Focus", " Copy Again"] };
+                                let selection = dialoguer::Select::new()
+                                    .with_prompt("Action?")
+                                    .default(0).items(&selections[..]).interact().unwrap();
+
+                                if selection == 0 {
+                                    println!("{}", console::style("🚀 Focused left window. Cmd+V to paste & Send!").green());
+                                    let _ = crate::roles::symbiotic_macos::SymbioticMacOS::focus_safari_panel("left").await;
+                                    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+                                    let _ = dialoguer::Select::new().with_prompt("✔ Copy answer (Cmd+C) and press Enter")
+                                        .default(0).items(&[" Extraction Ready"]).interact().unwrap();
+                                } else {
+                                    continue;
+                                }
                             }
 
-                            // 3. User interaction prompts
-                            let expected_sample = payload_str.chars().take(80).collect::<String>();
-                            println!("\n{} {}", console::style("↻ [AI_SYS]").yellow(), console::style(format!("対象ブラウザタブを開き、[ Cmd + V ] で貼り付けて送信してください。(Expected snippet: {}...)", expected_sample.replace('\n', " "))).dim());
-                            let selections_confirm = &[" コピー完了。抽出を開始する"];
-                            let _ = dialoguer::Select::new()
-                                .with_prompt("どうしますか？ (Geminiの出力をCmd+Cでコピーしてから押してください)")
-                                .default(0)
-                                .items(&selections_confirm[..])
-                                .interact()
-                                .unwrap();
-
-                            info!("[StealthGemini-{}] Human-in-the-Loop tracking pipeline successfully engaged.", self.id);
-
-                            // 4. Retrieve OS Clipboard as Final Output
+                            // Retrieve OS Clipboard as Final Output
                             let clipboard_content = match crate::roles::symbiotic_macos::SymbioticMacOS::get_clipboard().await {
                                 Ok(c) => c.trim().to_string(),
                                 Err(e) => {
@@ -521,17 +446,18 @@ Personality: {persona_traits}
                                 }
                             };
                             
-                            if clipboard_content.is_empty() {
-                                println!("{}", console::style("❌ クリップボードが空です。もう一度やり直してください。").red());
-                                tokio::time::sleep(tokio::time::Duration::from_millis(1500)).await;
+                            if clipboard_content.is_empty() || clipboard_content == payload_str.trim() {
+                                println!("{}", console::style("❌ 抽出エラー (Geminiが応答しなかったか、同一コンテンツ)。再試行します...").red());
+                                tokio::time::sleep(tokio::time::Duration::from_millis(2000)).await;
                                 continue;
                             }
 
+                            println!("{}", console::style(format!("✔ 抽出完了！({}文字)", clipboard_content.chars().count())).green());
                             last_response_rendered = clipboard_content;
                             break;
                         }
 
-                        info!("[StealthGemini-{}] Human-in-the-Loop Extracted.", self.id);
+                        info!("[StealthGemini-{}] Cycle Extracted.", self.id);
                     }
 
                     // 5. Evaluate Response for VX Commands
