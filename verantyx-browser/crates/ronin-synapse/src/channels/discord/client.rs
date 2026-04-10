@@ -4,12 +4,12 @@
 //! normalizes them to SynapseMessage, and sends outgoing Ronin responses
 //! back to the correct channel. All logic is async and non-blocking.
 
-use crate::event::message::{ChannelSource, SynapseAttachment, SynapseMessage, SynapseResponse};
+use crate::event::message::{ChannelSource, SynapseMessage, SynapseResponse};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use tokio::sync::mpsc;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info, warn};
 
 const DISCORD_API_BASE: &str = "https://discord.com/api/v10";
 

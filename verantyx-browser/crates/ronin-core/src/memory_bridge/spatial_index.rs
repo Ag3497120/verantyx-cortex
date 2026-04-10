@@ -8,9 +8,9 @@ use crate::domain::types::MemoryZone;
 use crate::memory_bridge::kanji_ontology::{KanjiOp, KanjiTag, TypedRelation, RelationType};
 use chrono::{DateTime, Utc, TimeZone};
 use std::collections::{HashMap, HashSet};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use tokio::fs;
-use tracing::{debug, info};
+use tracing::info;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Spatial Memory Node (JCross V4)

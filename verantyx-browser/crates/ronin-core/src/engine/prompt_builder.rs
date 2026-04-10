@@ -8,7 +8,7 @@
 //! 5. Conversation history (budgeted)
 
 use crate::domain::config::{RoninConfig, SystemLanguage};
-use crate::domain::types::{AgentRole, MemoryZone};
+use crate::domain::types::AgentRole;
 use crate::models::tier_calibration::TierProfile;
 use crate::models::context_budget::{ContextBudget, TokenLedger, estimate_tokens};
 use std::fmt::Write;

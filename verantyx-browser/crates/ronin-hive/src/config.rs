@@ -17,6 +17,7 @@ pub enum AutomationMode {
     AutoStealth,    // Free Gemini: full auto keyboard
     AutoPremium,    // Premium Gemini: Web Sandbox loop with image pasting
     Manual,         // Human-in-the-loop manual mode
+    HybridApi,      // Qwen Proxy to Gemini Cloud API
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -85,9 +86,8 @@ impl VerantyxConfig {
             Self::default()
         };
 
-        println!("\n{}", console::style("╭─ [ ✨ Verantyx Engine Initial Setup ] ────────────────────────────────").cyan().bold());
-        println!("{} OpenClawアーキテクチャに基づくAI人格およびスケジューラの初期設定を開始します。", console::style("│").cyan().bold());
-        println!("{}", console::style("╰──────────────────────────────────────────────────────────────────────").cyan().bold());
+        println!("\n{}", console::style("✨ Verantyx Engine Initial Setup (OpenClaude Style)").cyan().bold());
+        println!("{}\n", console::style("Initiating AI Persona and Scheduler configuration").cyan().bold());
 
         let languages = &["Japanese (日本語)", "English"];
         let default_lang_idx = if existing.language == "en" { 1 } else { 0 };
@@ -132,11 +132,12 @@ impl VerantyxConfig {
         println!("{}", auto_desc);
         
         let auto_opts = if lang_idx == 0 { 
-            &["手動モード (安全/確認あり)", "完全自動モード (無料版: AutoStealth)", "完全自動モード (ログイン版: WebSandboxループ)"]
+            &["手動モード (安全/確認あり)", "完全自動モード (無料版: AutoStealth)", "完全自動モード (ログイン版: WebSandboxループ)", "🛡️ ハイブリッドAPIモード (Qwen-Shield)"]
         } else { 
-            &["Manual (Safe)", "AutoStealth (Free)", "AutoPremium (Logged-in Sandbox)"] 
+            &["Manual (Safe)", "AutoStealth (Free)", "AutoPremium (Logged-in Sandbox)", "Hybrid API Mode"] 
         };
         let default_auto_idx = match existing.automation_mode {
+            AutomationMode::HybridApi => 3,
             AutomationMode::AutoPremium => 2,
             AutomationMode::AutoStealth => 1,
             AutomationMode::Manual => 0,
@@ -150,6 +151,7 @@ impl VerantyxConfig {
             .unwrap();
             
         let automation_mode = match auto_idx {
+            3 => AutomationMode::HybridApi,
             2 => AutomationMode::AutoPremium,
             1 => AutomationMode::AutoStealth,
             _ => AutomationMode::Manual,

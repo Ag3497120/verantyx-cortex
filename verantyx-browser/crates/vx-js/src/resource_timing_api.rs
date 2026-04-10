@@ -9,7 +9,7 @@
 //!   - Cross-Origin Protections (`Timing-Allow-Origin` checks resolving connection phases to zero)
 //!   - AI-facing: Resource fetch bottleneck visualizer and timing topology.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::VecDeque;
 
 /// Describes the breakdown of network phases for a single HTTP resource load
 #[derive(Debug, Clone)]

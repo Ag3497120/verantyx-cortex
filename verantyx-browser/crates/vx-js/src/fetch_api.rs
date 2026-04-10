@@ -98,7 +98,7 @@ impl AbortController {
         Self { signal: AbortSignal::new() }
     }
 
-    pub fn abort(&self, reason: Option<&str>) {
+    pub fn abort(&self, _reason: Option<&str>) {
         if let Ok(mut aborted) = self.signal.aborted.lock() {
             *aborted = true;
         }

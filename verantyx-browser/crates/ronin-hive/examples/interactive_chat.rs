@@ -10,6 +10,22 @@ use tracing_subscriber::FmtSubscriber;
 use uuid::Uuid;
 use chrono::Utc;
 use std::io::{self, Write};
+use indicatif::{ProgressBar, ProgressStyle};
+use std::time::Duration;
+
+enum ActiveAgent {
+    Stealth(StealthWebActor),
+    Hybrid(ronin_hive::roles::hybrid_api::HybridApiActor),
+}
+
+impl ActiveAgent {
+    async fn receive(&mut self, env: Envelope) -> anyhow::Result<Option<Envelope>> {
+        match self {
+            Self::Stealth(a) => a.receive(env).await,
+            Self::Hybrid(a) => a.receive(env).await,
+        }
+    }
+}
 
 fn focus_terminal() {
     let term = std::env::var("TERM_PROGRAM").unwrap_or_default();
@@ -38,6 +54,17 @@ fn focus_terminal() {
     let _ = std::process::Command::new("afplay").arg("/System/Library/Sounds/Glass.aiff").spawn();
 }
 
+fn create_spinner(msg: &str) -> ProgressBar {
+    let pb = ProgressBar::new_spinner();
+    pb.set_style(ProgressStyle::default_spinner()
+        .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏", "✔"])
+        .template("{spinner:.cyan} {msg}").unwrap()
+    );
+    pb.enable_steady_tick(Duration::from_millis(80));
+    pb.set_message(msg.to_string());
+    pb
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     // 1. Initialize minimalistic UI logging
@@ -46,8 +73,10 @@ async fn main() -> anyhow::Result<()> {
         .finish();
     tracing::subscriber::set_global_default(subscriber).unwrap();
 
-    println!("\n{}", console::style("=== VERANTYX DUAL-BROWSER INTERACTIVE SHELL ===").cyan().bold());
-    println!("{}", console::style("Spawning Custom Stealth Browser and coordinating side-by-side with Safari...").dim());
+    let title = console::style("Verantyx Engine (OpenClaude Style)").color256(208).bold();
+    println!("\n{}\n", title);
+    
+    let init_spinner = create_spinner("Spawning Custom Stealth Browser...");
 
     // 2. Dual-Window Visualization Orchestration (AppleScript)
     let split_screen_js = r#"
@@ -91,45 +120,15 @@ async fn main() -> anyhow::Result<()> {
         .arg(split_screen_js)
         .output()
         .await;
+    init_spinner.finish_with_message(format!("{}", console::style("✔ Browser Coordinated").green()));
 
     // Load Config (Wizard if first time)
     let mut config = ronin_hive::config::VerantyxConfig::load_or_wizard(&std::env::current_dir().unwrap());
     
-    // Always prompt for Automation Mode on Interactive Chat launch
-    let auto_selections = if config.language == "ja" { 
-        vec!["🤖 完全自動モード (AutoStealth) - 物理キャリブレーションで自律稼働", "👤 手動モード (Manual) - 人間がCmd+Vで仲介する安全網"]
-    } else { 
-        vec!["🤖 AutoStealth Mode - Physical calibration autonomous operation", "👤 Manual Mode - Human intervenes via Cmd+V"]
-    };
-    
-    let auto_selection = dialoguer::Select::with_theme(&dialoguer::theme::ColorfulTheme::default())
-        .with_prompt(if config.language == "ja" { "通信・ペーストの自動化モードを選択してください" } else { "Select Automation Mode" })
-        .default(if config.automation_mode == ronin_hive::config::AutomationMode::AutoStealth { 0 } else { 1 })
-        .items(&auto_selections)
-        .interact()
-        .unwrap();
-        
-    config.automation_mode = if auto_selection == 0 {
-        if config.language == "ja" {
-            println!("\n{}", console::style("⚠️ 【System Requirement for AutoStealth Mode】 ⚠️").red().bold());
-            println!("{}", console::style("完全自動モード（物理マウス操作）を利用するには、以下の環境設定が必須となります：").yellow().bold());
-            println!("{}", console::style("  ・ MacBook 14インチ であること").cyan());
-            println!("{}", console::style("  ・ ディスプレイ解像度が「デフォルト」に設定されていること").cyan());
-            println!("{}", console::style("  ・ Safariのフォントおよびブラウザのズームが「標準（100%）」であること").cyan());
-            println!("{}", console::style("設定が一致しない場合、マウスのクリック位置がズレて誤操作が発生する可能性があります。").yellow());
-            println!("{}", console::style("設定が正しい人はそのまま利用できますが、設定が違う人はシステム設定を上記に合わせてから再度お試しください。\n").yellow());
-        } else {
-            println!("\n{}", console::style("⚠️ [System Requirement for AutoStealth Mode] ⚠️").red().bold());
-            println!("{}", console::style("To use AutoStealth Mode, the following environment settings are REQUIRED:").yellow().bold());
-            println!("{}", console::style("  - MacBook 14-inch").cyan());
-            println!("{}", console::style("  - Display Resolution set to 'Default'").cyan());
-            println!("{}", console::style("  - Safari font and zoom set to 'Standard (100%)'").cyan());
-            println!("{}", console::style("If these settings do not match, the mouse click position will drift and cause misoperations.").yellow());
-        }
-        ronin_hive::config::AutomationMode::AutoStealth
-    } else {
-        ronin_hive::config::AutomationMode::Manual
-    };
+    // In interactive chat, we respect whatever standard config logic generated (e.g. from the wizard)
+    // rather than reprompting every time over and over.
+
+    let is_api_mode = config.automation_mode == ronin_hive::config::AutomationMode::HybridApi;
     
     // Save to persist their latest explicit choice
     let _ = config.save(&std::env::current_dir().unwrap());
@@ -138,17 +137,32 @@ async fn main() -> anyhow::Result<()> {
 
     // 3. Spawn StealthGemini Actor
     let subagent_id = Uuid::new_v4();
-    let mut ephemeral_worker = StealthWebActor::new(
-        subagent_id,
-        true, // global access
-        std::env::current_dir().unwrap(), 
-        "gemma-2-test".to_string(), 
-        "Dual Browser Reactive REPL".to_string(), 
-        999, // Infinite loop essentially
-        is_ja, 
-        ronin_hive::roles::stealth_gemini::SystemRole::ArchitectWorker, 
-        1
-    );
+    let mut ephemeral_worker = if is_api_mode {
+        ActiveAgent::Hybrid(ronin_hive::roles::hybrid_api::HybridApiActor::new(
+            subagent_id,
+            true, // global access
+            std::env::current_dir().unwrap(), 
+            "gemma-2-test".to_string(), 
+            "Dual Browser Reactive REPL".to_string(), 
+            999, // Infinite loop essentially
+            is_ja, 
+            ronin_hive::roles::stealth_gemini::SystemRole::ArchitectWorker, 
+            1,
+            std::env::var("GEMINI_API_KEY").unwrap_or_default(),
+        ))
+    } else {
+        ActiveAgent::Stealth(StealthWebActor::new(
+            subagent_id,
+            true, // global access
+            std::env::current_dir().unwrap(), 
+            "gemma-2-test".to_string(), 
+            "Dual Browser Reactive REPL".to_string(), 
+            999, // Infinite loop essentially
+            is_ja, 
+            ronin_hive::roles::stealth_gemini::SystemRole::ArchitectWorker, 
+            1
+        ))
+    };
 
     let senior_id = Uuid::new_v4();
     let apprentice_id = Uuid::new_v4();
@@ -159,14 +173,11 @@ async fn main() -> anyhow::Result<()> {
     let root_path = std::env::current_dir().unwrap().join(".ronin").join("experience.jcross");
     let mut spatial_index = SpatialIndex::new(root_path);
     if let Ok(count) = spatial_index.hydrate().await {
-        if is_ja {
-            println!("{}", console::style(format!("🧠 空間記憶エンジン起動... {}件の過去のノードをロードしました。", count)).magenta());
-        } else {
-            println!("{}", console::style(format!("🧠 Spatial Memory Engine Booted... Loaded {} past nodes.", count)).magenta());
-        }
+        let text = if is_ja { format!("🧠 空間記憶エンジン起動... {}件の過去のノードをロードしました。", count) } else { format!("🧠 Spatial Memory Engine Booted... Loaded {} past nodes.", count) };
+        println!("{}", console::style(text).color256(147)); // Soft purple/blue
     }
     
-    println!("{}", console::style("Booting Stealth Gemini Actor... Please wait for Internal WKWebView GUI to render.\n").dim());
+    println!();
 
     let mut conversation_turns = 0;
     let mut previous_worker_payload = String::new();
@@ -186,10 +197,10 @@ async fn main() -> anyhow::Result<()> {
         let query = if !is_new_user_turn {
             let val = auto_forward_payload.clone();
             auto_forward_payload.clear();
-            println!("{}", console::style("\n(Verantyx)> [System Auto Forwarding Execution Result to Worker]").dim());
+            println!("{}", console::style("  [System Auto Forwarding Execution Result to Worker]").dim());
             val
         } else {
-            print!("{}", console::style("\n(Verantyx)> ").green().bold());
+            print!("{} ", console::style("❯").color256(208).bold());
             io::stdout().flush().unwrap();
             let mut input = String::new();
             io::stdin().read_line(&mut input).unwrap();
@@ -257,17 +268,32 @@ If it exceeds 10,000 characters, detail only the 10 most recent events and summa
                 let new_senior_id = Uuid::new_v4();
                 let new_apprentice_id = Uuid::new_v4();
 
-                ephemeral_worker = StealthWebActor::new(
-                    new_worker_id,
-                    true,
-                    std::env::current_dir().unwrap(), 
-                    "gemma-2-test".to_string(), 
-                    "Dual Browser Reactive REPL".to_string(), 
-                    999,
-                    is_ja, 
-                    ronin_hive::roles::stealth_gemini::SystemRole::ArchitectWorker, 
-                    1
-                );
+                ephemeral_worker = if is_api_mode {
+                    ActiveAgent::Hybrid(ronin_hive::roles::hybrid_api::HybridApiActor::new(
+                        new_worker_id,
+                        true,
+                        std::env::current_dir().unwrap(), 
+                        "gemma-2-test".to_string(), 
+                        "Dual Browser Reactive REPL".to_string(), 
+                        999,
+                        is_ja, 
+                        ronin_hive::roles::stealth_gemini::SystemRole::ArchitectWorker, 
+                        1,
+                        std::env::var("GEMINI_API_KEY").unwrap_or_default(),
+                    ))
+                } else {
+                    ActiveAgent::Stealth(StealthWebActor::new(
+                        new_worker_id,
+                        true,
+                        std::env::current_dir().unwrap(), 
+                        "gemma-2-test".to_string(), 
+                        "Dual Browser Reactive REPL".to_string(), 
+                        999,
+                        is_ja, 
+                        ronin_hive::roles::stealth_gemini::SystemRole::ArchitectWorker, 
+                        1
+                    ))
+                };
                 senior_agent = ronin_hive::roles::supervisor_gemini::SupervisorGeminiActor::new(
                     new_senior_id,
                     ronin_hive::roles::supervisor_gemini::SupervisorRank::Senior,
@@ -321,7 +347,7 @@ If it exceeds 10,000 characters, detail only the 10 most recent events and summa
             payload: serde_json::to_string(&dispatch_msg)?,
         };
 
-        println!("\n{}", console::style("[Phase 1] Launching Gemini Architect...").magenta().bold());
+        let pt = create_spinner("Thinking (Gemini Architect)...");
         let gemini_response_payload = match ephemeral_worker.receive(turn_env).await? {
             Some(reply) => {
                 if let Ok(HiveMessage::Objective(res)) = serde_json::from_str(&reply.payload) {
@@ -331,10 +357,11 @@ If it exceeds 10,000 characters, detail only the 10 most recent events and summa
                 }
             }
             None => {
-                println!("{}", console::style("[Error] Worker failed or returned empty!").red());
+                pt.finish_with_message(format!("{}", console::style("✖ Worker failed or returned empty!").red()));
                 continue;
             }
         };
+        pt.finish_and_clear();
 
         // --- State Machine Routing: `最終回答`, `編集中`, `最終回答仮`, `そのまま出力` ---
         let mut seen_final_answer = 0;
@@ -345,10 +372,9 @@ If it exceeds 10,000 characters, detail only the 10 most recent events and summa
         
         // Priority checks using `.contains` to be highly fault-tolerant against Gemini's conversational preamble
         if trimmed_gemini_output.contains(pfx_temp) {
-            println!("\n{}", console::style(format!("=== 💡 GEMINI STATE: {} (Temporary Final Answer) ===", pfx_temp)).green().bold());
             seen_final_answer += 1;
             
-            println!("\n{}", console::style("[Phase 2] Prompting Senior for hallucination audit and prefix conversion...").magenta().bold());
+            let sp_senior = create_spinner("Auditing with Senior and generating Final Answer...");
             let request_title1 = if is_ja { "【ユーザーの元の要件】" } else { "[Original User Req]" };
             let request_title2 = if is_ja { "【出力結果】" } else { "[Result Output]" };
             let senior_dispatch = HiveMessage::Objective(format!(
@@ -369,28 +395,22 @@ If it exceeds 10,000 characters, detail only the 10 most recent events and summa
                     }
                     if seen_final_answer >= 2 {
                         display_to_user = senior_mod;
-                        let success_msg = if is_ja { "✅ シニアが「最終回答仮」を監査し、「最終回答」へ書き換えました。" } else { "✅ Senior audited Temp-Final and rewrote as Final Answer." };
-                        println!("{}", console::style(success_msg).green().bold());
                     }
                 }
             }
+            sp_senior.finish_and_clear();
 
             if seen_final_answer >= 2 {
-                println!("\n{}", console::style("=== USER OUTPUT (最終回答) ===").cyan().bold());
-                println!("{}", display_to_user);
-                println!("{}", console::style("=============================").cyan().bold());
+                println!("\n{}\n", display_to_user.trim());
                 previous_worker_payload = display_to_user;
                 focus_terminal();
                 continue;
             }
 
         } else if trimmed_gemini_output.contains(pfx_raw) {
-            let log_state = if is_ja { format!("=== 💡 GEMINI STATE: {} (Raw Output / Audit Needed) ===", pfx_raw) } else { format!("=== 💡 GEMINI STATE: {} (Audit Needed) ===", pfx_raw) };
-            println!("\n{}", console::style(log_state).green().bold());
             let mut seen_raw = 1;
             
-            let log_phase2 = if is_ja { "[Phase 2] Seniorへハルシネーション監査およびプレフィックス変換を要求します..." } else { "[Phase 2] Prompting Senior for hallucination audit and prefix conversion..." };
-            println!("\n{}", console::style(log_phase2).magenta().bold());
+            let sp_senior = create_spinner("Auditing with Senior and generating Final Output...");
             let req_title_ja = format!("【ユーザーの元の要件】\n{}\n\n【出力結果】\n{}", query, gemini_response_payload);
             let req_title_en = format!("[Original User Req]\n{}\n\n[Result Output]\n{}", query, gemini_response_payload);
             let senior_dispatch = HiveMessage::Objective(if is_ja { req_title_ja } else { req_title_en });
@@ -408,36 +428,27 @@ If it exceeds 10,000 characters, detail only the 10 most recent events and summa
                     }
                     if seen_raw >= 2 {
                         display_to_user = senior_mod.clone();
-                        let success_msg = if is_ja { format!("✅ シニアが「{}」を監査し、「{}」へ書き換えました。", pfx_raw, pfx_final_out) } else { format!("✅ Senior audited {} and rewrote as {}.", pfx_raw, pfx_final_out) };
-                        println!("{}", console::style(success_msg).green().bold());
                         
                         // Save Raw Output to Spatial Memory Front Zone
                         let timestamp = Utc::now().format("%Y%m%d_%H%M%S").to_string();
                         let memory_key = format!("mem_{}_raw_output", timestamp);
                         let _ = spatial_index.write_front(&memory_key, &senior_mod).await;
-                        let save_msg = if is_ja { format!("💾 [記憶保存] 'Front' ゾーンに出力を物理保存しました ({}.md)", memory_key) } else { format!("💾 [Memory] Saved output to 'Front' zone ({}.md)", memory_key) };
-                        println!("{}", console::style(save_msg).magenta());
                     }
                 }
             }
+            sp_senior.finish_and_clear();
 
             if seen_raw >= 2 {
-                let log_final = if is_ja { format!("=== USER OUTPUT ({}) ===", pfx_final_out) } else { format!("=== USER OUTPUT ({}) ===", pfx_final_out) };
-                println!("\n{}", console::style(log_final).cyan().bold());
-                println!("{}", display_to_user);
-                println!("{}", console::style("=============================").cyan().bold());
+                println!("\n{}\n", display_to_user.trim());
                 previous_worker_payload = display_to_user;
                 focus_terminal();
                 continue;
             }
 
         } else if trimmed_gemini_output.contains(pfx_editing) {
-            let log_state = if is_ja { format!("=== 📝 GEMINI STATE: {} (Editing Mode) ===", pfx_editing) } else { format!("=== 📝 GEMINI STATE: {} (Editing Mode) ===", pfx_editing) };
-            println!("\n{}", console::style(log_state).yellow().bold());
             seen_editing += 1;
             
-            let log_phase2a = if is_ja { "[Phase 2-A] Seniorへ純粋な時系列記憶として記録します (監査なし)..." } else { "[Phase 2-A] Saving to Senior time-series memory (no audit)..." };
-            println!("\n{}", console::style(log_phase2a).magenta().bold());
+            let sp_senior = create_spinner("Parsing intent into Time-Series Memory...");
             
             let payload_title = if is_ja { "【出力結果】" } else { "[Result Output]" };
             let senior_dispatch = HiveMessage::Objective(format!(
@@ -457,20 +468,16 @@ If it exceeds 10,000 characters, detail only the 10 most recent events and summa
                     if senior_mod.contains(pfx_editing) {
                         seen_editing += 1;
                         pass1_output = senior_mod;
-                        let success_save = if is_ja { format!("✅ シニアが「{}」をそのまま記憶に保存しました。", pfx_editing) } else { format!("✅ Senior saved '{}' into memory.", pfx_editing) };
-                        println!("{}", console::style(success_save).green().bold());
                     }
                 }
             }
+            sp_senior.finish_and_clear();
 
             if seen_editing >= 2 {
                 // Save to Spatial Memory Front Zone (Task Intent)
                 let timestamp = Utc::now().format("%Y%m%d_%H%M%S").to_string();
                 let memory_key = format!("mem_{}_edit_intent", timestamp);
                 let _ = spatial_index.write_front(&memory_key, &pass1_output).await;
-                
-                let save_intent_msg = if is_ja { format!("💾 [記憶保存] 'Front' ゾーンにタスク意図を物理保存しました ({}.md)", memory_key) } else { format!("💾 [Memory] Saved task intent to 'Front' zone ({}.md)", memory_key) };
-                println!("{}", console::style(save_intent_msg).magenta());
 
                 // Safely extract instruction by finding everything AFTER prefix
                 let parts: Vec<&str> = pass1_output.splitn(2, pfx_editing).collect();
@@ -481,7 +488,7 @@ If it exceeds 10,000 characters, detail only the 10 most recent events and summa
                 };
                 
                 // --- PHASE 2-B: Qwen Execution (Local SLM) ---
-                println!("\n{}", console::style("[Phase 2-B] Handing over to Local Qwen (Executor) for File Edits...").yellow().bold());
+                let sp_exec = create_spinner("Executing tasks with Local Qwen Executor...");
                 let local_slm = OllamaProvider::new("127.0.0.1", 11434);
                 let req = InferenceRequest {
                     model: "qwen2.5:1.5b".to_string(),
@@ -510,19 +517,15 @@ If it exceeds 10,000 characters, detail only the 10 most recent events and summa
                 let qwen_output = match local_slm.invoke(&req, &history).await {
                     Ok(out) => out,
                     Err(e) => {
-                        println!("{}", console::style(format!("Local SLM unreachable: {}", e)).red());
-                        "SLM Error".to_string()
+                        format!("Local SLM unreachable: {}", e)
                     }
                 };
+                sp_exec.finish_and_clear();
 
-                println!("\n{}", console::style("=== QWEN EXECUTION RESULT ===").cyan().bold());
-                println!("{}", qwen_output);
-                println!("{}", console::style("=============================").cyan().bold());
+                let report_header = console::style(if is_ja { "▶ 実行レポート" } else { "▶ Execution Report" }).color256(208).bold();
+                println!("\n{}\n{}\n", report_header, qwen_output.trim());
 
                 // --- PHASE 3: Supervisor Senior Hook (Memory Record ONLY for Execution Result) ---
-                let log_phase3 = if is_ja { "[Phase 3] Senior Gemini Memory Sync of Execution Result (Non-destructive)..." } else { "[Phase 3] Senior Gemini Memory Sync of Execution Result (Non-destructive)..." };
-                println!("\n{}", console::style(log_phase3).magenta().bold());
-                
                 let exec_report = if is_ja { format!("【Qwenによる実行完了報告】\n実行結果:\n{}", qwen_output) } else { format!("[Qwen Execution Report]\nResult:\n{}", qwen_output) };
                 let senior_dispatch_exec = HiveMessage::Objective(exec_report);
                 let senior_env_exec = Envelope {
@@ -532,20 +535,15 @@ If it exceeds 10,000 characters, detail only the 10 most recent events and summa
                     payload: serde_json::to_string(&senior_dispatch_exec)?,
                 };
                 
+                let sp_sync = create_spinner("Syncing execution results to spatial memory...");
                 if let Some(senior_reply) = senior_agent.receive(senior_env_exec).await? {
                     if let Ok(HiveMessage::Objective(senior_mod)) = serde_json::from_str(&senior_reply.payload) {
-                        let ok_save_exec = if is_ja { "シニア側の時系列記憶にプレフィックスなしで安全に実行結果を保存完了しました。" } else { "Safely saved execution result to Senior's memory stream without prefix." };
-                        println!("\n✅ {}", console::style(ok_save_exec).green().bold());
-                        
-                        // Save Qwen exec results to Spatial Memory Front Zone
                         let timestamp = Utc::now().format("%Y%m%d_%H%M%S").to_string();
                         let memory_key = format!("mem_{}_qwen_exec", timestamp);
                         let _ = spatial_index.write_front(&memory_key, &senior_mod).await;
-                        
-                        let save_done = if is_ja { format!("💾 [記憶保存] 'Front' ゾーンに結果を物理保存しました ({}.md)", memory_key) } else { format!("💾 [Memory] Saved exec result to 'Front' zone ({}.md)", memory_key) };
-                        println!("{}", console::style(save_done).magenta());
                     }
                 }
+                sp_sync.finish_and_clear();
 
                 let sys_note = if is_ja { format!("【システム通知: コマンド実行結果】\n{}", qwen_output) } else { format!("[System Notification: CLI Execution Result]\n{}", qwen_output) };
                 auto_forward_payload = sys_note;
@@ -555,13 +553,9 @@ If it exceeds 10,000 characters, detail only the 10 most recent events and summa
             }
         
         } else if trimmed_gemini_output.contains(pfx_final) {
-            let state_final_log = if is_ja { format!("=== 💡 GEMINI STATE: {} (Final Answer) ===", pfx_final) } else { format!("=== 💡 GEMINI STATE: {} (Final Answer) ===", pfx_final) };
-            println!("\n{}", console::style(state_final_log).green().bold());
             seen_final_answer += 1;
             
-            let phase2_log = if is_ja { "[Phase 2] Seniorへ純粋な時系列記憶として記録します (監査なし)..." } else { "[Phase 2] Recording to Senior time-series memory (no audit)..." };
-            println!("\n{}", console::style(phase2_log).magenta().bold());
-            
+            let sp_senior = create_spinner("Parsing intent into Time-Series Memory...");
             let req_res = if is_ja { format!("【出力結果】\n{}", gemini_response_payload) } else { format!("[Result Output]\n{}", gemini_response_payload) };
             let senior_dispatch = HiveMessage::Objective(req_res);
             let senior_env = Envelope {
@@ -578,21 +572,17 @@ If it exceeds 10,000 characters, detail only the 10 most recent events and summa
                     }
                     if seen_final_answer >= 2 {
                         display_to_user = senior_mod.clone();
-                        println!("{}", console::style("✅ シニアが「最終回答」をそのまま記憶に保存し、再リレーしました。").green().bold());
                         
-                        // Save Final Answer to Spatial Memory Front Zone
                         let timestamp = Utc::now().format("%Y%m%d_%H%M%S").to_string();
                         let memory_key = format!("mem_{}_final_answer", timestamp);
                         let _ = spatial_index.write_front(&memory_key, &senior_mod).await;
-                        println!("{}", console::style(format!("💾 [記憶保存] 'Front' ゾーンに最終回答を物理保存しました ({}.md)", memory_key)).magenta());
                     }
                 }
             }
+            sp_senior.finish_and_clear();
 
             if seen_final_answer >= 2 {
-                println!("\n{}", console::style("=== USER OUTPUT (最終回答) ===").cyan().bold());
-                println!("{}", display_to_user);
-                println!("{}", console::style("=============================").cyan().bold());
+                println!("\n{}\n", display_to_user.trim());
                 previous_worker_payload = display_to_user;
                 focus_terminal();
                 continue;
@@ -600,16 +590,14 @@ If it exceeds 10,000 characters, detail only the 10 most recent events and summa
 
         } else {
             // Fallback for no prefix
-            println!("\n{}", console::style("⚠️ [Warning] Worker returned no valid prefix! Treating as silent timeline record.").yellow().bold());
-            println!("{}", console::style("--- [EXTRACTED RAW PAYLOAD SNIPPET START] ---").dim());
+            println!("\n{}", console::style("⚠ プレフィックスが検出されませんでした (Fallback/Silent Timeline)").yellow().dim());
             // Print up to 1000 chars of the end of the payload to see what Gemini actually generated
             let snippet = if gemini_response_payload.len() > 1000 {
                 &gemini_response_payload[gemini_response_payload.len() - 1000..]
             } else {
                 &gemini_response_payload
             };
-            println!("{}", snippet.trim());
-            println!("{}", console::style("--- [EXTRACTED RAW PAYLOAD SNIPPET END] ---").dim());
+            println!("\n{}\n", console::style(snippet.trim()).dim());
             previous_worker_payload = gemini_response_payload;
             continue;
         }

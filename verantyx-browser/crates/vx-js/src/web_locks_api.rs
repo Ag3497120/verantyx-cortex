@@ -60,7 +60,7 @@ impl WebLocksManager {
 
     /// Entry point for navigator.locks.request() (§ 5.1)
     pub fn request_lock(&mut self, name: &str, mode: LockMode, client_id: &str, if_available: bool) -> Result<(), String> {
-        let mut granted = self.can_grant(name, mode);
+        let granted = self.can_grant(name, mode);
         
         if if_available && !granted {
             return Err("NOT_AVAILABLE".into());

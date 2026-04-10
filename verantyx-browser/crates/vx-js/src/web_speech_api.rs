@@ -9,7 +9,7 @@
 //!   - Permissions and Security (§ 4): Restricted to Secure Contexts and user-activation
 //!   - AI-facing: Speech transcript log and synthesis queue visualizer
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::VecDeque;
 
 /// Speech recognition state (§ 5.1)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

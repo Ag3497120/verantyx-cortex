@@ -32,7 +32,7 @@ impl Sandbox {
     }
 
     /// Check if a script execution is allowed by CSP
-    pub fn allows_script(&self, source: &str, nonce: Option<&str>) -> Result<()> {
+    pub fn allows_script(&self, source: &str, _nonce: Option<&str>) -> Result<()> {
         let origin = crate::csp::Origin::from_url(source).unwrap_or(crate::csp::Origin {
             scheme: "https".to_string(), host: source.to_string(), port: None,
         });

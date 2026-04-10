@@ -8,9 +8,9 @@ pub const HTML_TEMPLATE: &str = r##"
         body {
             margin: 0;
             padding: 0;
-            background-color: #0d1117;
-            color: #c9d1d9;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: #FAF9F6;
+            color: #2D2D2D;
+            font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
             overflow: hidden;
             display: flex;
             justify-content: center;
@@ -26,36 +26,38 @@ pub const HTML_TEMPLATE: &str = r##"
         }
         #ui-layer {
             position: absolute;
-            top: 20px;
-            left: 20px;
+            top: 24px;
+            left: 28px;
             z-index: 10;
             pointer-events: none;
         }
         .title {
-            font-size: 24px;
-            font-weight: bold;
-            color: #58a6ff;
-            text-shadow: 0 0 10px rgba(88, 166, 255, 0.5);
+            font-size: 20px;
+            font-weight: 500;
+            color: #1A1A1A;
+            letter-spacing: -0.01em;
+            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
         }
         .subtitle {
-            font-size: 14px;
-            color: #8b949e;
-            margin-top: 5px;
+            font-size: 13px;
+            color: #71717A;
+            margin-top: 4px;
+            font-weight: 400;
         }
         #tooltip {
             position: absolute;
-            background: rgba(13, 17, 23, 0.85);
-            border: 1px solid #30363d;
-            border-radius: 6px;
-            padding: 10px 15px;
-            color: #e6edf3;
-            font-size: 12px;
+            background: #FFFFFF;
+            border: 1px solid #E4E4E7;
+            border-radius: 8px;
+            padding: 12px 16px;
+            color: #3F3F46;
+            font-size: 13px;
+            line-height: 1.5;
             z-index: 20;
             pointer-events: none;
             display: none;
-            box-shadow: 0 8px 24px rgba(0,0,0,0.5);
-            backdrop-filter: blur(4px);
-            max-width: 300px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -2px rgba(0, 0, 0, 0.05);
+            max-width: 320px;
             white-space: pre-wrap;
         }
     </style>
@@ -189,11 +191,11 @@ pub const HTML_TEMPLATE: &str = r##"
 
         function getStyleForAxis(axis) {
             switch(axis) {
-                case 'FRONT': return { color: '#ff7b72', glow: 'rgba(255, 123, 114, 0.5)' };
-                case 'NEAR': return { color: '#d2a8ff', glow: 'rgba(210, 168, 255, 0.5)' };
-                case 'MID': return { color: '#79c0ff', glow: 'rgba(121, 192, 255, 0.5)' };
-                case 'DEEP': return { color: '#8b949e', glow: 'rgba(139, 148, 158, 0.3)' };
-                default: return { color: '#c9d1d9', glow: 'rgba(201, 209, 217, 0.3)' };
+                case 'FRONT': return { color: '#D97757', glow: 'rgba(217, 119, 87, 0.4)' };
+                case 'NEAR': return { color: '#60A5FA', glow: 'rgba(96, 165, 250, 0.3)' };
+                case 'MID': return { color: '#34D399', glow: 'rgba(52, 211, 153, 0.2)' };
+                case 'DEEP': return { color: '#A1A1AA', glow: 'rgba(161, 161, 170, 0.2)' };
+                default: return { color: '#D4D4D8', glow: 'rgba(212, 212, 216, 0.2)' };
             }
         }
 
@@ -216,14 +218,14 @@ pub const HTML_TEMPLATE: &str = r##"
                 ctx.beginPath();
                 ctx.arc(n.x, n.y, 8, 0, Math.PI * 2);
                 ctx.shadowColor = style.color;
-                ctx.shadowBlur = 15;
-                ctx.fillStyle = hoveredNode === n ? '#ffffff' : style.color;
+                ctx.shadowBlur = 12;
+                ctx.fillStyle = hoveredNode === n ? '#1A1A1A' : style.color;
                 ctx.fill();
                 
                 ctx.shadowBlur = 0;
 
-                ctx.font = "10px monospace";
-                ctx.fillStyle = "#8b949e";
+                ctx.font = "11px ui-sans-serif, system-ui, sans-serif";
+                ctx.fillStyle = "#52525B";
                 ctx.fillText(n.id, n.x + 12, n.y + 4);
             }
         }

@@ -14,12 +14,12 @@ lazy_static::lazy_static! {
 pub struct SafariEvaluatorActor {
     pub id: Uuid,
     cwd: std::path::PathBuf,
-    is_japanese_mode: bool,
+    _is_japanese_mode: bool,
 }
 
 impl SafariEvaluatorActor {
     pub fn new(id: Uuid, cwd: std::path::PathBuf, is_japanese_mode: bool) -> Self {
-        Self { id, cwd, is_japanese_mode }
+        Self { id, cwd, _is_japanese_mode: is_japanese_mode }
     }
 
     async fn run_applescript(&self, script: &str) -> String {

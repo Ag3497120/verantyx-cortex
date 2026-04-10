@@ -53,7 +53,7 @@ impl ReActStateMachine {
                 // Return to thinking phase for next logic block
                 self.current_state = FsmState::Thinking { turn: *turn + 1 };
             }
-            (state, Event::Error(e)) => {
+            (_state, Event::Error(e)) => {
                 self.current_state = FsmState::SelfCorrecting { cause: e };
             }
             (FsmState::SelfCorrecting { .. }, Event::Recover(t)) => {

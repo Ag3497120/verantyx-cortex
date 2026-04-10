@@ -1,5 +1,5 @@
 use std::path::{Path, PathBuf};
-use tracing::{info, debug};
+use tracing::info;
 
 pub struct SemanticAnalyzer {
     workspace_root: PathBuf,

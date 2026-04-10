@@ -4,7 +4,6 @@
 
 use tokio::process::Command;
 use tracing::info;
-use rand::Rng;
 
 pub struct SafariBounds {
     pub x: i32,

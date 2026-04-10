@@ -55,7 +55,7 @@ impl BarcodeDetectionEngine {
     }
 
     /// JS execution: `await detector.detect(videoElement)`
-    pub fn process_detection(&mut self, detector_id: u64, target_width: u32, target_height: u32) -> Result<Vec<DetectedBarcode>, String> {
+    pub fn process_detection(&mut self, detector_id: u64, _target_width: u32, _target_height: u32) -> Result<Vec<DetectedBarcode>, String> {
         if let Some(_options) = self.active_detectors.get(&detector_id) {
             self.total_detections_processed += 1;
 

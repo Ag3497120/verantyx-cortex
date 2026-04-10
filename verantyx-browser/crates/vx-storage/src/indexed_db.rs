@@ -4,7 +4,6 @@
 //! Supports Transactions, ObjectStores, and Multi-Level Indexes.
 
 use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
 use anyhow::Result;
 use serde::{Serialize, Deserialize};
 

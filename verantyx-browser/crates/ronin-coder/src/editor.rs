@@ -1,6 +1,5 @@
 use std::path::{Path, PathBuf};
 use std::fs;
-use tracing::{debug, error, info};
 use crate::protocol::{ReplaceRequest, EditResult};
 
 pub struct FileEditor {

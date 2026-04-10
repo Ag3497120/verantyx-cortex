@@ -13,7 +13,6 @@
 //!   - AI-facing: Database schema visualizer and transaction state monitor
 
 use std::collections::{HashMap, BTreeMap};
-use std::sync::{Arc, Mutex};
 
 /// IndexedDB Key types (§ 8)
 #[derive(Debug, Clone, PartialEq, PartialOrd)]

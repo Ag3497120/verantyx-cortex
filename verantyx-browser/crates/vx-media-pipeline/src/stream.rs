@@ -4,7 +4,6 @@
 //! Allows the AI to "view" and "hear" canvas payloads without expensive OS rendering.
 
 use bytes::Bytes;
-use std::sync::Arc;
 use tokio::sync::broadcast;
 
 #[derive(Debug, Clone)]

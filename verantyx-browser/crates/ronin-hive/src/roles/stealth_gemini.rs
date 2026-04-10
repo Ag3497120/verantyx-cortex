@@ -9,8 +9,6 @@ lazy_static::lazy_static! {
 }
 use uuid::Uuid;
 use ronin_core::models::provider::LlmProvider;
-use vx_dom::Document;
-use vx_render::ai_renderer::AiRenderer;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum SystemRole {
@@ -400,9 +398,11 @@ Personality: {persona_traits}
 ", timeline_content, anti_pattern_content, experience_content, objective)
                 };
 
-                let mut current_payload = system_prompt.clone();
+                let current_payload = system_prompt.clone();
+                #[allow(unused_assignments)]
                 let mut final_output = String::new();
-                let mut rollback_count = 0;
+                #[allow(unused_assignments)]
+                let mut _rollback_count = 0;
                 let mut loop_counter = 0;
 
                 if self.js_tx.is_none() {
@@ -769,9 +769,9 @@ Personality: {persona_traits}
 
                     if !tools_used {
                         let has_japanese = last_response_rendered.chars().any(|c| matches!(c, '\u{3040}'..='\u{309F}' | '\u{30A0}'..='\u{30FF}'));
-                        if self.is_japanese_mode && !has_japanese && rollback_count < 2 {
+                        if self.is_japanese_mode && !has_japanese && _rollback_count < 2 {
                             info!("[StealthGemini-{}] Foreign language final response detected in Japanese Mode. Forcing translation rollback.", self.id);
-                            rollback_count += 1;
+                            _rollback_count += 1;
                             feedback.push_str("[SYS REJECT: Your entire response was in English despite the System Language being Japanese. Completely translate your previous response into natural Japanese and output it again. Do NOT output code unless absolutely necessary.]\n\n");
                         } else {
                             info!("[StealthGemini-{}] No tools detected. Yielding final response.", self.id);
@@ -786,7 +786,7 @@ Personality: {persona_traits}
                             break;
                         }
                     } else {
-                        rollback_count = 0; // Reset rollback if they successfully used tools
+                        _rollback_count = 0; // Reset rollback if they successfully used tools
                     }
 
                     // Enforce 1 conversation = 1 turn. Break out to give Orchestrator the turn handling.

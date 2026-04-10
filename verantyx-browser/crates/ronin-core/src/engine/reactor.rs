@@ -6,7 +6,6 @@ use crate::engine::state_machine::{ReActStateMachine, Event, FsmState};
 use crate::engine::xml_parser::parse_llm_stream;
 use crate::engine::tool_dispatcher::ToolDispatcher;
 use crate::engine::validator::{SandboxValidator, ValidationDecision};
-use std::collections::HashMap;
 
 pub struct RoninReactor {
     pub profile: TierProfile,
@@ -66,7 +65,7 @@ impl RoninReactor {
             match parse_llm_stream(&response) {
                 Ok(payload) => {
                     let payload_content = payload.content.trim();
-                    let (action_name, action_payload) = if payload_content.starts_with("<payload>") {
+                    let (action_name, _action_payload) = if payload_content.starts_with("<payload>") {
                         // This logic requires better XML parsing, but for now we expect payload to be flat or just command execution
                         ("shell_exec", payload_content)
                     } else if payload_content.starts_with("<?xml") || payload_content.starts_with("<") {
@@ -99,7 +98,7 @@ impl RoninReactor {
                         let observation = if res.output.contains("❌ EXIT") || res.output.contains("Command timed out") {
                             match self.validator.record_failure(&res.output) {
                                 ValidationDecision::ContinueSelfCorrection => res.output.clone(),
-                                ValidationDecision::RequireHigherTierAudit(errors) => {
+                                ValidationDecision::RequireHigherTierAudit(_errors) => {
                                     format!("{} \n\n[SYSTEM] Critical recursive failure detected by SandboxValidator. Initiating autonomous Gemini Audit: Calling ask_gemini_browser with error logs...", res.output)
                                 }
                             }

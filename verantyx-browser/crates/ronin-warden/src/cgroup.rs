@@ -1,4 +1,4 @@
-use tracing::{info, warn};
+use tracing::info;
 
 pub struct CgroupManager {
     group_name: String,

@@ -7,7 +7,7 @@ use anyhow::Result;
 use crossbeam_channel::{unbounded, Sender, Receiver};
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use crate::message::{IpcEnvelope, RouteId};
+use crate::message::IpcEnvelope;
 
 /// Core IPC Channel connection bounding two operating system processes.
 pub struct IpcChannel {

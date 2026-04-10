@@ -8,7 +8,7 @@
 //!   - Font Matching Algorithm Integration: Updating font selection based on loaded metrics
 //!   - AI-facing: Font Loading State registry and system font substitution tracking
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::VecDeque;
 
 /// States of an individual FontFace (§ 3.2)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

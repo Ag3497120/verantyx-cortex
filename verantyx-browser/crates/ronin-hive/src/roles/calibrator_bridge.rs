@@ -1,10 +1,10 @@
-use tokio::process::{Command, Child, ChildStdin, ChildStdout};
+use tokio::process::{Command, ChildStdin};
 use tokio::io::{AsyncWriteExt, AsyncBufReadExt, BufReader};
 use serde::{Serialize, Deserialize};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use anyhow::{Result, anyhow};
-use tracing::{info, warn, error};
+use tracing::{info, warn};
 
 #[derive(Serialize)]
 struct BridgeCommand {

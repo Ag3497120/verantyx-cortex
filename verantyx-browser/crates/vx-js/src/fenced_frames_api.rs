@@ -62,7 +62,7 @@ impl FencedFramesEngine {
     }
 
     /// JS execution: `window.fence.reportEvent({ destination: 'buyer', ... })` (§ 5)
-    pub fn process_fence_report_event(&mut self, node_id: u64, destination: &str, event_data: &str) -> Result<(), String> {
+    pub fn process_fence_report_event(&mut self, node_id: u64, _destination: &str, _event_data: &str) -> Result<(), String> {
         if let Some(frame) = self.active_frames.get_mut(&node_id) {
             if !frame.has_network_access {
                 return Err("NetworkError: Fenced frame network access has been disabled".into());

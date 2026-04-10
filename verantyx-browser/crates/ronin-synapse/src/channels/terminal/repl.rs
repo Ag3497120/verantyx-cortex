@@ -4,7 +4,7 @@
 //! with the Ronin agent directly in their terminal. Supports history, multi-line
 //! input, and streaming output display with a spinner progress indicator.
 
-use crate::event::message::{ChannelSource, SynapseMessage, SynapseResponse};
+use crate::event::message::{SynapseMessage, SynapseResponse};
 use console::style;
 use indicatif::{ProgressBar, ProgressStyle};
 use std::io::{BufRead, Write};

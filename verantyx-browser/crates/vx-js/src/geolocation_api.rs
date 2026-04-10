@@ -61,7 +61,7 @@ impl GeolocationManager {
     }
 
     /// Entry point for getCurrentPosition() (§ 5.3.1)
-    pub fn get_current_position(&mut self, options: PositionOptions) -> Result<Position, PositionErrorCode> {
+    pub fn get_current_position(&mut self, _options: PositionOptions) -> Result<Position, PositionErrorCode> {
         if !self.permission_granted { return Err(PositionErrorCode::PermissionDenied); }
         
         match &self.current_position {

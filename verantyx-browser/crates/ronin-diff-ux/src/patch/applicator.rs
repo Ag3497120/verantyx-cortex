@@ -4,7 +4,6 @@
 //! in case of filesystem errors. Integrates with the Git staging area
 //! when a valid Git repository is detected.
 
-use crate::diff::engine::FileDiffResult;
 use crate::patch::backup::BackupManager;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};

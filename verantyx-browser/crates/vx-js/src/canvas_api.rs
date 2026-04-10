@@ -13,7 +13,6 @@
 //!   - Path objects: Path2D integration
 //!   - AI-facing: Canvas command visualizer and rasterization metrics
 
-use std::collections::HashMap;
 
 /// Canvas compositing modes (§ 4.12.5.1.13)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

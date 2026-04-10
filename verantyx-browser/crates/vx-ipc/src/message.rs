@@ -5,7 +5,6 @@
 
 use serde::{Serialize, Deserialize};
 use std::fmt::Debug;
-use bytes::Bytes;
 
 /// Globally unique route identifier for cross-process communication targets
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -54,7 +53,7 @@ impl IpcEnvelope {
 
     /// Serialize via Bincode for zero-copy memory transport boundaries
     pub fn serialize(&self) -> anyhow::Result<Vec<u8>> {
-        let mut bytes = bincode::serialize(self)?;
+        let bytes = bincode::serialize(self)?;
         // In a real Chromium clone, this sets payload headers
         Ok(bytes)
     }

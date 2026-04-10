@@ -5,9 +5,8 @@
 //! handler (the Ronin agent inference pipeline). Outgoing responses are routed
 //! back to the originating channel automatically.
 
-use crate::event::message::{SynapseMessage, SynapseResponse, ChannelSource};
+use crate::event::message::{SynapseMessage, SynapseResponse};
 use async_trait::async_trait;
-use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{broadcast, mpsc, Mutex};
 use tracing::{debug, info, warn};

@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use crate::models::tier_calibration::{TierProfile, InferenceTier};
+use crate::models::tier_calibration::TierProfile;
 use tracing::info;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

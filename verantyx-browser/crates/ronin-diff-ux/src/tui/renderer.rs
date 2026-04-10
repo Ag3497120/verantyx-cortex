@@ -5,7 +5,7 @@
 //! visual quality of Aider and Cline-style diff displays.
 
 use crate::diff::engine::{FileDiffResult, DiffHunk, DiffLine, LineKind};
-use console::{style, Term};
+use console::style;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Renderer Config

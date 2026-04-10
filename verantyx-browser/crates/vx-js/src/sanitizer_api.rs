@@ -79,7 +79,7 @@ impl SanitizerEngine {
         let config = self.configurations.get(&sanitizer_id).cloned().unwrap_or_default();
         
         let mut nodes_dropped = 0;
-        let mut attrs_stripped = 0;
+        let attrs_stripped = 0;
 
         // Extremely simplified simulation of a parsing/sanitization pipeline
         let mut safe_html = raw_html.to_string();

@@ -48,6 +48,7 @@ pub struct RunnerConfig {
     pub model_override: Option<String>,
     pub hitl_override: Option<bool>,
     pub force_stealth: bool,
+    pub api_mode: bool,
     pub cwd: PathBuf,
     pub max_steps: Option<u32>,
 }
@@ -68,6 +69,42 @@ pub struct RunResult {
 // ─────────────────────────────────────────────────────────────────────────────
 // Agent Runner
 // ─────────────────────────────────────────────────────────────────────────────
+
+enum ActiveAgent {
+    Hybrid(ronin_hive::roles::hybrid_api::HybridApiActor),
+    Stealth(ronin_hive::roles::stealth_gemini::StealthWebActor),
+}
+
+impl ActiveAgent {
+    async fn receive(&mut self, env: ronin_hive::actor::Envelope) -> anyhow::Result<Option<ronin_hive::actor::Envelope>> {
+        use ronin_hive::actor::Actor;
+        match self {
+            Self::Hybrid(a) => a.receive(env).await,
+            Self::Stealth(a) => a.receive(env).await,
+        }
+    }
+
+    fn current_turns(&self) -> u8 {
+        match self {
+            Self::Hybrid(a) => a.current_turns,
+            Self::Stealth(a) => a.current_turns,
+        }
+    }
+
+    fn turn_limit(&self) -> u8 {
+        match self {
+            Self::Hybrid(a) => a.turn_limit,
+            Self::Stealth(a) => a.turn_limit,
+        }
+    }
+    
+    fn set_role_senior(&mut self) {
+        match self {
+            Self::Hybrid(a) => a.role = ronin_hive::roles::stealth_gemini::SystemRole::SeniorObserver,
+            Self::Stealth(a) => a.role = ronin_hive::roles::stealth_gemini::SystemRole::SeniorObserver,
+        }
+    }
+}
 
 pub struct AgentRunner {
     config: RoninConfig,
@@ -290,41 +327,86 @@ If no mapping is needed, set needs_mapping to false.
             self.config.agent.primary_model.clone()
         );
 
-        let mut worker_actor = ronin_hive::roles::stealth_gemini::StealthWebActor::new(
-            uuid::Uuid::new_v4(),
-            self.config.sandbox.allow_filesystem_escape,
-            runner_cfg.cwd.clone(),
-            self.config.agent.primary_model.clone(),
-            self.config.providers.ollama.host.clone(),
-            self.config.providers.ollama.port,
-            self.config.agent.system_language == ronin_core::domain::config::SystemLanguage::Japanese,
-            ronin_hive::roles::stealth_gemini::SystemRole::ArchitectWorker,
-            1,
-        );
+        let mut worker_actor = if runner_cfg.api_mode {
+            ActiveAgent::Hybrid(ronin_hive::roles::hybrid_api::HybridApiActor::new(
+                uuid::Uuid::new_v4(),
+                self.config.sandbox.allow_filesystem_escape,
+                runner_cfg.cwd.clone(),
+                self.config.agent.primary_model.clone(),
+                self.config.providers.ollama.host.clone(),
+                self.config.providers.ollama.port,
+                self.config.agent.system_language == ronin_core::domain::config::SystemLanguage::Japanese,
+                ronin_hive::roles::stealth_gemini::SystemRole::ArchitectWorker,
+                1,
+                self.config.providers.gemini.as_ref().map(|g| g.api_key.clone()).unwrap_or_default(),
+            ))
+        } else {
+            ActiveAgent::Stealth(ronin_hive::roles::stealth_gemini::StealthWebActor::new(
+                uuid::Uuid::new_v4(),
+                self.config.sandbox.allow_filesystem_escape,
+                runner_cfg.cwd.clone(),
+                self.config.agent.primary_model.clone(),
+                self.config.providers.ollama.host.clone(),
+                self.config.providers.ollama.port,
+                self.config.agent.system_language == ronin_core::domain::config::SystemLanguage::Japanese,
+                ronin_hive::roles::stealth_gemini::SystemRole::ArchitectWorker,
+                1,
+            ))
+        };
 
-        let mut senior_actor = ronin_hive::roles::stealth_gemini::StealthWebActor::new(
-            uuid::Uuid::new_v4(),
-            self.config.sandbox.allow_filesystem_escape,
-            runner_cfg.cwd.clone(),
-            self.config.agent.primary_model.clone(),
-            self.config.providers.ollama.host.clone(),
-            self.config.providers.ollama.port,
-            self.config.agent.system_language == ronin_core::domain::config::SystemLanguage::Japanese,
-            ronin_hive::roles::stealth_gemini::SystemRole::SeniorObserver,
-            2,
-        );
+        let mut senior_actor = if runner_cfg.api_mode {
+            ActiveAgent::Hybrid(ronin_hive::roles::hybrid_api::HybridApiActor::new(
+                uuid::Uuid::new_v4(),
+                self.config.sandbox.allow_filesystem_escape,
+                runner_cfg.cwd.clone(),
+                self.config.agent.primary_model.clone(),
+                self.config.providers.ollama.host.clone(),
+                self.config.providers.ollama.port,
+                self.config.agent.system_language == ronin_core::domain::config::SystemLanguage::Japanese,
+                ronin_hive::roles::stealth_gemini::SystemRole::SeniorObserver,
+                2,
+                self.config.providers.gemini.as_ref().map(|g| g.api_key.clone()).unwrap_or_default(),
+            ))
+        } else {
+            ActiveAgent::Stealth(ronin_hive::roles::stealth_gemini::StealthWebActor::new(
+                uuid::Uuid::new_v4(),
+                self.config.sandbox.allow_filesystem_escape,
+                runner_cfg.cwd.clone(),
+                self.config.agent.primary_model.clone(),
+                self.config.providers.ollama.host.clone(),
+                self.config.providers.ollama.port,
+                self.config.agent.system_language == ronin_core::domain::config::SystemLanguage::Japanese,
+                ronin_hive::roles::stealth_gemini::SystemRole::SeniorObserver,
+                2,
+            ))
+        };
 
-        let mut junior_actor: Option<ronin_hive::roles::stealth_gemini::StealthWebActor> = Some(ronin_hive::roles::stealth_gemini::StealthWebActor::new(
-            uuid::Uuid::new_v4(),
-            self.config.sandbox.allow_filesystem_escape,
-            runner_cfg.cwd.clone(),
-            self.config.agent.primary_model.clone(),
-            self.config.providers.ollama.host.clone(),
-            self.config.providers.ollama.port,
-            self.config.agent.system_language == ronin_core::domain::config::SystemLanguage::Japanese,
-            ronin_hive::roles::stealth_gemini::SystemRole::JuniorObserver,
-            3,
-        ));
+        let mut junior_actor = if runner_cfg.api_mode {
+            Some(ActiveAgent::Hybrid(ronin_hive::roles::hybrid_api::HybridApiActor::new(
+                uuid::Uuid::new_v4(),
+                self.config.sandbox.allow_filesystem_escape,
+                runner_cfg.cwd.clone(),
+                self.config.agent.primary_model.clone(),
+                self.config.providers.ollama.host.clone(),
+                self.config.providers.ollama.port,
+                self.config.agent.system_language == ronin_core::domain::config::SystemLanguage::Japanese,
+                ronin_hive::roles::stealth_gemini::SystemRole::JuniorObserver,
+                3,
+                self.config.providers.gemini.as_ref().map(|g| g.api_key.clone()).unwrap_or_default(),
+            )))
+        } else {
+            Some(ActiveAgent::Stealth(ronin_hive::roles::stealth_gemini::StealthWebActor::new(
+                uuid::Uuid::new_v4(),
+                self.config.sandbox.allow_filesystem_escape,
+                runner_cfg.cwd.clone(),
+                self.config.agent.primary_model.clone(),
+                self.config.providers.ollama.host.clone(),
+                self.config.providers.ollama.port,
+                self.config.agent.system_language == ronin_core::domain::config::SystemLanguage::Japanese,
+                ronin_hive::roles::stealth_gemini::SystemRole::JuniorObserver,
+                3,
+            )))
+        };
 
         if runner_cfg.force_stealth {
             final_objective = format!("[STEALTH_FORCE] {}", final_objective);
@@ -373,27 +455,42 @@ If no mapping is needed, set needs_mapping to false.
             step_count += 1;
             
             // Check Sliding Window Expiration
-            if worker_actor.current_turns >= worker_actor.turn_limit {
+            if worker_actor.current_turns() >= worker_actor.turn_limit() {
                 info!("[Runner] Memory limit reached. Handing over Swarm tokens and purging old memory context...");
                 
                 // Junior promotes to Senior
                 if let Some(mut j) = junior_actor.take() {
-                    j.role = ronin_hive::roles::stealth_gemini::SystemRole::SeniorObserver;
+                    j.set_role_senior();
                     senior_actor = j;
                 }
                 
                 // Spawn new Junior
-                junior_actor = Some(ronin_hive::roles::stealth_gemini::StealthWebActor::new(
-                    uuid::Uuid::new_v4(),
-                    self.config.sandbox.allow_filesystem_escape,
-                    runner_cfg.cwd.clone(),
-                    self.config.agent.primary_model.clone(),
-                    self.config.providers.ollama.host.clone(),
-                    self.config.providers.ollama.port,
-                    self.config.agent.system_language == ronin_core::domain::config::SystemLanguage::Japanese,
-                    ronin_hive::roles::stealth_gemini::SystemRole::JuniorObserver,
-                    next_tab_index,
-                ));
+                junior_actor = if runner_cfg.api_mode {
+                    Some(ActiveAgent::Hybrid(ronin_hive::roles::hybrid_api::HybridApiActor::new(
+                        uuid::Uuid::new_v4(),
+                        self.config.sandbox.allow_filesystem_escape,
+                        runner_cfg.cwd.clone(),
+                        self.config.agent.primary_model.clone(),
+                        self.config.providers.ollama.host.clone(),
+                        self.config.providers.ollama.port,
+                        self.config.agent.system_language == ronin_core::domain::config::SystemLanguage::Japanese,
+                        ronin_hive::roles::stealth_gemini::SystemRole::JuniorObserver,
+                        next_tab_index,
+                        self.config.providers.gemini.as_ref().map(|g| g.api_key.clone()).unwrap_or_default(),
+                    )))
+                } else {
+                    Some(ActiveAgent::Stealth(ronin_hive::roles::stealth_gemini::StealthWebActor::new(
+                        uuid::Uuid::new_v4(),
+                        self.config.sandbox.allow_filesystem_escape,
+                        runner_cfg.cwd.clone(),
+                        self.config.agent.primary_model.clone(),
+                        self.config.providers.ollama.host.clone(),
+                        self.config.providers.ollama.port,
+                        self.config.agent.system_language == ronin_core::domain::config::SystemLanguage::Japanese,
+                        ronin_hive::roles::stealth_gemini::SystemRole::JuniorObserver,
+                        next_tab_index,
+                    )))
+                };
                 next_tab_index = if next_tab_index == 2 { 3 } else { 2 };
             }
 

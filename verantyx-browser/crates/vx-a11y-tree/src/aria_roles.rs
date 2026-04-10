@@ -8,7 +8,6 @@
 //! required/supported properties, inherited states, and the cognitive
 //! summary generation used for AI agent decision making.
 
-use std::collections::HashSet;
 
 /// All ARIA Roles per WAI-ARIA 1.3 Specification
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

@@ -89,7 +89,7 @@ impl Actor for SupervisorGeminiActor {
                 if self.current_turns >= 5 {
                     println!("{} Reached 5 memory turns for {}. Resetting Web Session to evade detection/context-bloat.", console::style("[SYSTEM]").cyan(), window_name);
                     let reload_js = "window.location.href = 'https://gemini.google.com/app';";
-                    let mut reload_script = format!(
+                    let _reload_script = format!(
                         r#"tell application "Safari"
                             set winList to every window
                             repeat with w in winList

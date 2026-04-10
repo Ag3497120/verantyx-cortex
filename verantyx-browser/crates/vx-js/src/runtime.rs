@@ -6,7 +6,7 @@
 //! - Console output capture
 
 use anyhow::Result;
-use deno_core::{op2, extension, JsRuntime, RuntimeOptions, OpState};
+use deno_core::{op2, extension, RuntimeOptions, OpState};
 use std::sync::{Arc, Mutex};
 
 /// Captured console output

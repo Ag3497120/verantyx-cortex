@@ -16,7 +16,6 @@
 //!   6. Child stacking contexts with z-index == 0 or auto
 //!   7. Child stacking contexts with positive z-indexes
 
-use std::collections::BTreeMap;
 
 /// 2D point (re-defined locally to avoid cross-crate dependency)
 #[derive(Debug, Clone, Copy, Default, PartialEq)]

@@ -49,7 +49,7 @@ impl WebUsbEngine {
         // Let's assume the user selects an Arduino device:
         let id_uuid = format!("usb-{}", self.active_bus_connections.len());
         
-        let mut device = UsbDeviceDescriptor {
+        let device = UsbDeviceDescriptor {
             vendor_id: requested_vendor_id.unwrap_or(0x2341), // 0x2341 = Arduino
             product_id: 0x0043,
             manufacturer_name: "Arduino (www.arduino.cc)".into(),
@@ -78,7 +78,7 @@ impl WebUsbEngine {
     }
 
     /// JS execution: `await device.transferOut(1, new Uint8Array([0x01, 0x02]))`
-    pub fn execute_bulk_transfer(&mut self, device_uuid: &str, _endpoint: u8, data_len_bytes: usize, direction: UsbTransferDirection) -> Result<usize, String> {
+    pub fn execute_bulk_transfer(&mut self, device_uuid: &str, _endpoint: u8, data_len_bytes: usize, _direction: UsbTransferDirection) -> Result<usize, String> {
         if let Some(device) = self.active_bus_connections.get(device_uuid) {
             if !device.is_opened { return Err("InvalidStateError: Device not open".into()); }
             

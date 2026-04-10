@@ -1,6 +1,6 @@
 use git2::{Repository, Signature, IndexAddOption, ResetType};
-use std::path::{Path, PathBuf};
-use tracing::{debug, info, warn};
+use std::path::Path;
+use tracing::{info, warn};
 
 pub struct GitEngine {
     repo: Repository,
@@ -16,7 +16,7 @@ impl GitEngine {
     pub fn checkout_branch(&self, branch_name: &str) -> anyhow::Result<()> {
         let head = self.repo.head()?.peel_to_commit()?;
         
-        let mut branch = match self.repo.find_branch(branch_name, git2::BranchType::Local) {
+        let branch = match self.repo.find_branch(branch_name, git2::BranchType::Local) {
             Ok(b) => b,
             Err(_) => self.repo.branch(branch_name, &head, false)?,
         };

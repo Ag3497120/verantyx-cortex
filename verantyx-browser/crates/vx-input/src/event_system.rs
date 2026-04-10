@@ -386,7 +386,7 @@ pub struct KeyboardEventData {
 
 impl KeyboardEventData {
     /// Map a physical key code string to a legacy keyCode value
-    pub fn legacy_key_code(key: &str, code: &str) -> u32 {
+    pub fn legacy_key_code(key: &str, _code: &str) -> u32 {
         match key {
             "Backspace" => 8,
             "Tab" => 9,
@@ -590,7 +590,7 @@ impl InputEventDispatcher {
     pub fn synthesize_pointer_from_mouse(
         &self,
         event_type: &EventType,
-        data: &MouseEventData
+        _data: &MouseEventData
     ) -> Option<EventType> {
         match event_type {
             EventType::MouseDown => Some(EventType::PointerDown),

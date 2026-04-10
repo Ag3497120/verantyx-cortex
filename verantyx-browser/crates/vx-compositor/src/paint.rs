@@ -4,7 +4,6 @@
 //! For Verantyx AI, this outputs a semantic grid simulating rendered bounds.
 
 use crate::layer::{CompositingLayer, LayerTree};
-use std::collections::BTreeMap;
 
 pub struct PaintEngine;
 

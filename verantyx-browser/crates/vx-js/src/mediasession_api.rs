@@ -62,7 +62,7 @@ impl MediaSessionEngine {
     }
 
     /// OS Callback: Executed when user presses the hardware "Play/Pause" key on their keyboard
-    pub fn simulate_hardware_key_press(&mut self, session_id: u64, action: MediaActionType) -> bool {
+    pub fn simulate_hardware_key_press(&mut self, session_id: u64, _action: MediaActionType) -> bool {
         // Find if the session actually registered a handler for this hardware key
         let count = self.registered_handlers_count.get(&session_id).unwrap_or(&0);
         if *count > 0 {

@@ -70,7 +70,7 @@ impl WebMIDIEngine {
     }
 
     /// Simulates JS outputting a MIDI message directly to hardware (§ 5.3)
-    pub fn send_message(&self, output_port_id: &str, data: Vec<u8>) -> Result<(), String> {
+    pub fn send_message(&self, output_port_id: &str, _data: Vec<u8>) -> Result<(), String> {
         if !self.outputs.contains_key(output_port_id) {
             return Err("InvalidAccessError: Output port not found".into());
         }

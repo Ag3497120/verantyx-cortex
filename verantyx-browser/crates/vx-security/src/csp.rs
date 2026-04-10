@@ -8,7 +8,7 @@
 //! - Trusted Types integration hooks
 //! - `strict-dynamic` token propagation
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 /// All Content Security Policy directives per CSP Level 3
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -389,7 +389,7 @@ impl ContentSecurityPolicy {
             SourceExpression::Scheme(scheme) => {
                 url.to_lowercase().starts_with(&format!("{}:", scheme))
             }
-            SourceExpression::Host { scheme, host, port, path, wildcard_host, .. } => {
+            SourceExpression::Host { scheme, host, port, path: _, wildcard_host, .. } => {
                 // Simplified host matching — full implementation would handle wildcards
                 let lower_url = url.to_lowercase();
                 let host_check = if *wildcard_host {

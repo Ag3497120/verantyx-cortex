@@ -42,6 +42,10 @@ pub struct RunArgs {
     /// Force execution out to the Stealth Web Gemini agent instead of local models
     #[arg(long)]
     pub stealth: bool,
+
+    /// Run the agent in Hybrid API (Qwen-Shield) mode
+    #[arg(long)]
+    pub api: bool,
 }
 
 pub async fn execute(args: RunArgs) -> Result<()> {
@@ -78,6 +82,7 @@ pub async fn execute(args: RunArgs) -> Result<()> {
         model_override: args.model,
         hitl_override: Some(!args.no_hitl),
         force_stealth: args.stealth,
+        api_mode: args.api,
         cwd,
         max_steps: args.max_steps,
     }).await?;

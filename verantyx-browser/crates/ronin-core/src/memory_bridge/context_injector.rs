@@ -3,7 +3,6 @@
 //! Responsible for selecting *which* memory nodes to surface for a given task,
 //! respecting the available token budget and zone prioritization rules.
 
-use crate::domain::error::Result;
 use crate::models::context_budget::{ContextBudget, estimate_tokens};
 use super::spatial_index::{SpatialIndex, MemoryNode};
 use tracing::debug;

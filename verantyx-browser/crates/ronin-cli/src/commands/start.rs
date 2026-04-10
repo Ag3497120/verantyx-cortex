@@ -36,6 +36,10 @@ pub struct StartArgs {
     /// Force execution out to the Stealth Web Gemini agent instead of local models
     #[arg(long)]
     pub stealth: bool,
+
+    /// Run the agent in Hybrid API (Qwen-Shield) mode
+    #[arg(long)]
+    pub api: bool,
 }
 
 pub async fn execute(args: StartArgs) -> Result<()> {
@@ -86,12 +90,16 @@ pub async fn execute(args: StartArgs) -> Result<()> {
         }
 
         let mut is_stealth = args.stealth;
+        let mut is_api = args.api;
         let mut task = input.trim().to_string();
         if task.is_empty() { continue; }
 
         if task.starts_with("/stealth ") {
             is_stealth = true;
             task = task.strip_prefix("/stealth ").unwrap().trim().to_string();
+        } else if task.starts_with("/api ") {
+            is_api = true;
+            task = task.strip_prefix("/api ").unwrap().trim().to_string();
         }
 
         if matches!(task.as_str(), "exit" | "quit" | "/exit") {
@@ -119,6 +127,7 @@ pub async fn execute(args: StartArgs) -> Result<()> {
             model_override: Some(model.clone()),
             hitl_override: Some(hitl),
             force_stealth: is_stealth,
+            api_mode: is_api,
             cwd: cwd.clone(),
             max_steps: None,
         }).await?;

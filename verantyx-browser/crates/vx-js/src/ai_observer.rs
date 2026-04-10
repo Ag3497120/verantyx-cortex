@@ -8,7 +8,6 @@
 //! - Custom event routing to the AI command bus
 
 use std::collections::HashMap;
-use std::sync::Arc;
 use tokio::sync::mpsc;
 use serde::{Serialize, Deserialize};
 

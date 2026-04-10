@@ -1,5 +1,5 @@
 use sysinfo::System;
-use tracing::{info, warn};
+use tracing::warn;
 
 pub struct SystemMonitor {
     sys: System,
@@ -30,7 +30,7 @@ impl SystemMonitor {
     pub fn check_health(&mut self) -> anyhow::Result<()> {
         self.sys.refresh_all();
         
-        let total_mem = self.sys.total_memory() / 1024 / 1024;
+        let _total_mem = self.sys.total_memory() / 1024 / 1024;
         let used_mem = self.sys.used_memory() / 1024 / 1024;
 
         if used_mem > self.memory_limit_mb && !self.has_warned_memory {

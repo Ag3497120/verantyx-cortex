@@ -39,7 +39,7 @@ impl IpcRouter {
 
     /// Primary multiplexing node. Spawns an async listener task specifically
     /// attached to a raw incoming channel, decoding Bincode onto the Tokyo MPSC bus.
-    pub async fn multiplex(&self, mut raw_channel: IpcChannel) {
+    pub async fn multiplex(&self, raw_channel: IpcChannel) {
         let routes = self.routes.clone();
         
         tokio::spawn(async move {
