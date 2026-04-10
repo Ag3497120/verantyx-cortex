@@ -3,12 +3,19 @@
   "automation_mode": "AutoStealth",
   "persona": {
     "name": "Verantyx Alpha",
-    "personality": "friendly"
+    "personality": "アナリスト"
   },
   "scheduler": {
-    "night_watch_hour": 2
+    "night_watch_hour": 3
   },
+  "cloud_provider": "Gemini",
   "privacy": {
-    "auto_sync": false
-  }
+    "auto_sync": true
+  },
+  "nightwatch": {
+    "enabled": true,
+    "model": "gemma4:31b",
+    "watch_dir": "/Users/motonishikoudai "
+  },
+  "api_key": null
 }

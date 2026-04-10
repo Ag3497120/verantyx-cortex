@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+use crate::openclaude_ui::{OpenClaudeTheme, color_text, dim_text, rgb_ansi, ACCENT, CREAM, DIMCOL};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct PersonaConfig {
@@ -37,6 +38,13 @@ pub struct PrivacyConfig {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct NightwatchConfig {
+    pub enabled: bool,
+    pub model: String, // e.g., "gemma:27b" or "qwen2.5:32b"
+    pub watch_dir: String, // Directory to watch, usually current project
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct VerantyxConfig {
     pub language: String,
     pub automation_mode: AutomationMode,
@@ -44,6 +52,8 @@ pub struct VerantyxConfig {
     pub scheduler: SchedulerConfig,
     pub cloud_provider: CloudProvider,
     pub privacy: PrivacyConfig,
+    pub nightwatch: NightwatchConfig,
+    pub api_key: Option<String>,
 }
 
 impl Default for VerantyxConfig {
@@ -62,6 +72,12 @@ impl Default for VerantyxConfig {
             privacy: PrivacyConfig {
                 auto_sync: false, // Default opt-out
             },
+            nightwatch: NightwatchConfig {
+                enabled: false,
+                model: "gemma2".to_string(),
+                watch_dir: ".".to_string(),
+            },
+            api_key: None,
         }
     }
 }
@@ -99,12 +115,9 @@ impl VerantyxConfig {
             Self::default()
         };
 
-        println!("\n{}", console::style("✨ Verantyx Engine Initial Setup (OpenClaude Style)").cyan().bold());
-        println!("{}\n", console::style("Initiating AI Persona and Scheduler configuration").cyan().bold());
-
         let languages = &["Japanese (日本語)", "English"];
         let default_lang_idx = if existing.language == "en" { 1 } else { 0 };
-        let lang_idx = dialoguer::Select::with_theme(&dialoguer::theme::ColorfulTheme::default())
+        let lang_idx = dialoguer::Select::with_theme(&OpenClaudeTheme)
             .with_prompt("Select Language / システム言語とAIプロンプト言語を選択してください")
             .items(languages)
             .default(default_lang_idx)
@@ -112,26 +125,24 @@ impl VerantyxConfig {
             .unwrap();
         let lang_str = if lang_idx == 0 { "ja".to_string() } else { "en".to_string() };
 
-        let name: String = dialoguer::Input::with_theme(&dialoguer::theme::ColorfulTheme::default())
-            .with_prompt(if lang_idx == 0 { "AIの名前 (例: Verantyx Alpha, 助手AI)" } else { "AI Name (e.g., Verantyx Alpha)" })
+        let name: String = dialoguer::Input::with_theme(&OpenClaudeTheme)
+            .with_prompt(if lang_idx == 0 { "AIの名前" } else { "AI Name" })
             .default(existing.persona.name)
             .interact_text()
             .unwrap();
 
-        let personality_prompt = if lang_idx == 0 { "AIの人格・性格設定 (例: 冷静沈着, 厳格なプログラマー, フレンドリーに敬語で)" } else { "AI Personality (e.g., Calm analyst, strict programmer, friendly)" };
-        let personality: String = dialoguer::Input::with_theme(&dialoguer::theme::ColorfulTheme::default())
+        let personality_prompt = if lang_idx == 0 { "AIの人格・性格設定" } else { "AI Personality" };
+        let personality: String = dialoguer::Input::with_theme(&OpenClaudeTheme)
             .with_prompt(personality_prompt)
             .default(existing.persona.personality)
             .interact_text()
             .unwrap();
 
-        let nw_title = if lang_idx == 0 { "--- [ 🌙 Night Watch (自律深夜検証・退行テスト) ] ---" } else { "--- [ 🌙 Night Watch (Autonomous Regression Test) ] ---" };
-        let nw_desc = if lang_idx == 0 { "毎日指定した時間帯に、バックグラウンドデーモンが過去の記憶(experience)を元に勝手にAIを起動し、Webサイト等のレイアウトが変わって突破できなくなっていないかを自律検証します。" } else { "Background daemon autonomously runs validation tests based on past experience at the specified hour." };
-        let nw_prompt = if lang_idx == 0 { "自動実行を開始する時間帯 (0〜23の数字。無効にする場合は -1)" } else { "Hour to run (0-23. -1 to disable)" };
+        let nw_title = if lang_idx == 0 { "Night Watch (自律深夜検証・退行テスト)" } else { "Night Watch (Autonomous Regression Test)" };
+        let nw_desc = if lang_idx == 0 { "毎日指定した時間帯にバックグラウンドデーモンが過去の記憶を元に自律検証します。" } else { "Background daemon autonomously runs validation tests based on past experience." };
+        let nw_prompt = if lang_idx == 0 { format!("{} ({})", nw_title, dim_text(nw_desc)) } else { format!("{} ({})", nw_title, dim_text(nw_desc)) };
         
-        println!("\n{}", console::style(nw_title).magenta());
-        println!("{}", nw_desc);
-        let hour_str: String = dialoguer::Input::with_theme(&dialoguer::theme::ColorfulTheme::default())
+        let hour_str: String = dialoguer::Input::with_theme(&OpenClaudeTheme)
             .with_prompt(nw_prompt)
             .default(existing.scheduler.night_watch_hour.to_string())
             .interact_text()
@@ -139,13 +150,11 @@ impl VerantyxConfig {
 
         let night_watch_hour: i32 = hour_str.parse().unwrap_or(3);
 
-        let auto_title = if lang_idx == 0 { "--- [ 🖱️ Automation Bridge Mode ] ---" } else { "--- [ 🖱️ Automation Bridge Mode ] ---" };
-        let auto_desc = if lang_idx == 0 { "UI操作を完全に自動化するか、Cmd+V等を手動で行う安全モードかを選択します。" } else { "Choose between full headless UI automation or safe manual intervention mode." };
-        println!("\n{}", console::style(auto_title).cyan());
-        println!("{}", auto_desc);
+        let auto_title = if lang_idx == 0 { "Automation Bridge Mode" } else { "Automation Bridge Mode" };
+        let auto_desc = if lang_idx == 0 { "自動化レベルを選択" } else { "Choose automation level" };
         
         let auto_opts = if lang_idx == 0 { 
-            &["手動モード (安全/確認あり)", "完全自動モード (無料版: AutoStealth)", "完全自動モード (ログイン版: WebSandboxループ)", "🛡️ ハイブリッドAPIモード (Qwen-Shield)"]
+            &["手動モード (安全/確認あり)", "完全自動モード (無料版: AutoStealth)", "完全自動モード (ログイン版: WebSandboxループ)", "ハイブリッドAPIモード (Qwen-Shield)"]
         } else { 
             &["Manual (Safe)", "AutoStealth (Free)", "AutoPremium (Logged-in Sandbox)", "Hybrid API Mode"] 
         };
@@ -156,8 +165,8 @@ impl VerantyxConfig {
             AutomationMode::Manual => 0,
         };
         
-        let auto_idx = dialoguer::Select::with_theme(&dialoguer::theme::ColorfulTheme::default())
-            .with_prompt(if lang_idx == 0 { "システム制御モードを選択" } else { "Select System Control Mode" })
+        let auto_idx = dialoguer::Select::with_theme(&OpenClaudeTheme)
+            .with_prompt(format!("{} ({})", auto_title, dim_text(auto_desc)))
             .items(auto_opts)
             .default(default_auto_idx) 
             .interact()
@@ -170,11 +179,7 @@ impl VerantyxConfig {
             _ => AutomationMode::Manual,
         };
 
-        let provider_title = if lang_idx == 0 { "--- [ 🧠 Cloud Brain Model Selection ] ---" } else { "--- [ 🧠 Cloud Brain Model Selection ] ---" };
-        let provider_desc = if lang_idx == 0 { "APIモード利用時などのコア思考エンジン（Cloud Brain）を選択します。対応するAPIキーが環境変数に設定されている必要があります。" } else { "Select the core Cloud Brain engine (Requires corresponding API keys in env)." };
-        println!("\n{}", console::style(provider_title).cyan());
-        println!("{}", provider_desc);
-
+        let provider_title = if lang_idx == 0 { "Cloud Brain Model" } else { "Cloud Brain Model" };
         let provider_opts = &[
             "Google Gemini API (gemini-2.5-pro)", 
             "OpenAI API (gpt-4o, o3-mini)", 
@@ -195,39 +200,94 @@ impl VerantyxConfig {
             CloudProvider::Together => 6,
         };
 
-        let prov_idx = dialoguer::Select::with_theme(&dialoguer::theme::ColorfulTheme::default())
-            .with_prompt(if lang_idx == 0 { "利用するプロバイダーを選択" } else { "Select Cloud Provider" })
-            .items(provider_opts)
-            .default(default_prov_idx)
-            .interact()
-            .unwrap();
+        let cloud_provider = if automation_mode == AutomationMode::HybridApi || automation_mode == AutomationMode::Manual {
+            let prov_idx = dialoguer::Select::with_theme(&OpenClaudeTheme)
+                .with_prompt(provider_title)
+                .items(provider_opts)
+                .default(default_prov_idx)
+                .interact()
+                .unwrap();
 
-        let cloud_provider = match prov_idx {
-            0 => CloudProvider::Gemini,
-            1 => CloudProvider::OpenAi,
-            2 => CloudProvider::Anthropic,
-            3 => CloudProvider::DeepSeek,
-            4 => CloudProvider::OpenRouter,
-            5 => CloudProvider::Groq,
-            6 => CloudProvider::Together,
-            _ => CloudProvider::Gemini,
+            match prov_idx {
+                0 => CloudProvider::Gemini,
+                1 => CloudProvider::OpenAi,
+                2 => CloudProvider::Anthropic,
+                3 => CloudProvider::DeepSeek,
+                4 => CloudProvider::OpenRouter,
+                5 => CloudProvider::Groq,
+                6 => CloudProvider::Together,
+                _ => CloudProvider::Gemini,
+            }
+        } else {
+            CloudProvider::Gemini
         };
 
-        let privacy_title = if lang_idx == 0 { "--- [ 🔒 Privacy & Community Model Export ] ---" } else { "--- [ 🔒 Privacy & Community Model Export ] ---" };
-        let privacy_desc = if lang_idx == 0 { "ハルシネーション制御を含む成功した推論プロセス（JCross）をローカルからコミュニティに投稿しますか？（※ローカルパスや各種キーは常に自動サニタイズされて送信されます）" } else { "Do you consent to automatically export successful JCross inference memories to the community dataset? (Local paths and keys are automatically sanitized)" };
-        println!("\n{}", console::style(privacy_title).blue());
-        println!("{}", privacy_desc);
+        let api_key = if automation_mode == AutomationMode::HybridApi || automation_mode == AutomationMode::Manual {
+            let api_key_prompt = if lang_idx == 0 { "API Key (空欄で入力をスキップし、既存のもの／環境変数を維持)" } else { "API Key (Leave empty to keep existing/ENV)" };
+            let key_input: String = dialoguer::Password::with_theme(&OpenClaudeTheme)
+                .with_prompt(api_key_prompt)
+                .allow_empty_password(true)
+                .interact()
+                .unwrap();
+            
+            if !key_input.is_empty() {
+                Some(key_input)
+            } else {
+                existing.api_key.clone()
+            }
+        } else {
+            existing.api_key.clone()
+        };
+
+        let privacy_title = if lang_idx == 0 { "Privacy & Community Model Export" } else { "Privacy & Community Model Export" };
+        let privacy_desc = if lang_idx == 0 { "ハルシネーション制御を含む成功した推論プロセス（JCross）をコミュニティに投稿しますか？" } else { "Do you consent to automatically export successful JCross memories?" };
         
         let privacy_opts = if lang_idx == 0 { &["はい (Opt-in)", "いいえ (Opt-out)"] } else { &["Yes (Opt-in)", "No (Opt-out)"] };
         let default_priv_idx = if existing.privacy.auto_sync { 0 } else { 1 };
-        let privacy_idx = dialoguer::Select::with_theme(&dialoguer::theme::ColorfulTheme::default())
-            .with_prompt(if lang_idx == 0 { "Community Exportを許可しますか？" } else { "Allow Community Export?" })
+        let privacy_idx = dialoguer::Select::with_theme(&OpenClaudeTheme)
+            .with_prompt(format!("{} ({})", privacy_title, dim_text(privacy_desc)))
             .items(privacy_opts)
             .default(default_priv_idx)
             .interact()
             .unwrap();
 
         let auto_sync = privacy_idx == 0;
+
+        let watch_title = if lang_idx == 0 { "Nightwatch Protocol (Local AI File Observer)" } else { "Nightwatch Protocol (Local AI File Observer)" };
+        let watch_desc = if lang_idx == 0 { "ローカルのSLMを使用して夜間にファイル変更履歴を空間記憶にロスレス圧縮しますか？" } else { "Use local SLM to losslessly compress semantic file diffs into spatial memory at night?" };
+        
+        let watch_opts = if lang_idx == 0 { &["はい (Opt-in)", "いいえ (Opt-out)"] } else { &["Yes (Opt-in)", "No (Opt-out)"] };
+        let default_watch_idx = if existing.nightwatch.enabled { 0 } else { 1 };
+        let watch_idx = dialoguer::Select::with_theme(&OpenClaudeTheme)
+            .with_prompt(format!("{} ({})", watch_title, dim_text(watch_desc)))
+            .items(watch_opts)
+            .default(default_watch_idx)
+            .interact()
+            .unwrap();
+
+        let nightwatch_enabled = watch_idx == 0;
+
+        let nightwatch_model = if nightwatch_enabled {
+            let model_prompt = if lang_idx == 0 { "利用するローカルOllamaモデル名 (例: gemma2:27b, qwen2.5:32b)" } else { "Local Ollama model name (e.g., gemma2:27b, qwen2.5:32b)" };
+            dialoguer::Input::with_theme(&OpenClaudeTheme)
+                .with_prompt(model_prompt)
+                .default(existing.nightwatch.model)
+                .interact_text()
+                .unwrap()
+        } else {
+            existing.nightwatch.model
+        };
+
+        let watch_dir = if nightwatch_enabled {
+            let dir_prompt = if lang_idx == 0 { "監視するディレクトリ (デフォルト: . ＝ 現在のプロジェクト)" } else { "Directory to watch (Default: . = current project)" };
+            dialoguer::Input::with_theme(&OpenClaudeTheme)
+                .with_prompt(dir_prompt)
+                .default(existing.nightwatch.watch_dir)
+                .interact_text()
+                .unwrap()
+        } else {
+            existing.nightwatch.watch_dir
+        };
 
         let config = Self {
             language: lang_str,
@@ -236,13 +296,12 @@ impl VerantyxConfig {
             scheduler: SchedulerConfig { night_watch_hour },
             cloud_provider,
             privacy: PrivacyConfig { auto_sync },
+            nightwatch: NightwatchConfig { enabled: nightwatch_enabled, model: nightwatch_model, watch_dir },
+            api_key,
         };
 
         if let Err(e) = config.save(cwd) {
             tracing::error!("Failed to save configuration: {}", e);
-        } else {
-            let success_msg = if lang_idx == 0 { "初期設定が完了しました！" } else { "Initial setup completed!" };
-            println!("\n{} {} (Saved to .ronin/agent_config.json)\n", console::style("[AI_SYS]").green(), success_msg);
         }
 
         config

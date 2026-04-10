@@ -261,6 +261,12 @@ Personality: {persona_traits}
    - ユーザーの要求が単なる「知識系・抽象的な質問」であり、**`gemma4:31b`等を使ってファイルを一回も触ったりコマンドを実行したりする必要が100%ない場合**（完全な1ターン完結の質問）にのみ使用します。
 5. `[BROWSER_PREVIEW]` (全自動モード共通)
    - `[BROWSER_PREVIEW] http://localhost:3000` のように出力の1行目に書くことで、独自のWebSandbox上に対象のWebアプリを立ち上げ、そのレンダリング結果（UIの見た目）のスクリーンショットをあなた自身の視覚コンテキストへ直接読み込ませることができます。UI実装の見た目の確認とコードとの照らし合わせループに使用してください。
+6. `REQUEST_JCROSS_MAP: \`[tag]\`` (JCross空間記憶・能動的取得ツール)
+   - `[鍵]`や`[認]`などの漢字タグを指定し、自身の記憶層から軽量な概要マップ（意味圧縮されたJCross）を引き出します。記憶喪失（リフレッシュ）後に最適です。
+7. `REQUEST_FETCH_CODE: \`[path]\`` (実体ファイルJITロードツール)
+   - JCrossの地図情報だけでは足りず、物理的にコードを書き換えるために生の全量コードが必要だと判断した時のみ、指定パスのファイル中身を引きます。
+8. `REQUEST_TRACE_LOGIC: \`[node_id]\`` (空間依存追跡ツール)
+   - 特定のJCrossノードIDが、他にどのファイルや機能に依存・影響しているかをトレースします。
 
 【重要】
 - 挨拶や余計な自己紹介はシステムを破壊するため不要ですが、**「このコマンドや編集を何のために行うのか」という【gemma4:31bに対する日本語の目的・指示（コンテキスト）】**は、コマンドブロックの前に必ず自然言語で記述してください。これがないと実行側が文脈を見失い失敗します。
@@ -316,8 +322,14 @@ You MUST place exactly ONE of the following prefixes at the **very first line** 
    - Use this to present the final report to the user ONLY AFTER ALL tasks are fully complete and `gemma4:31b`'s execution results have been confirmed. Using this prematurely kills the workflow.
 4. `[TEMP_FINAL]`
    - Use this ONLY if the user's request is a purely conceptual/abstract question and there is **100% no need to EVER touch files or execute commands using gemma4:31b**.
-5. `[BROWSER_PREVIEW]` (All Auto Modes)
-   - Output `[BROWSER_PREVIEW] http://localhost:3000` on the very first line to spawn an isolated WebSandbox. The system will render the target Web App, capture a screenshot of its UI, and inject the visual layout directly into your context. Use this to visually verify your code changes.
+5. `[BROWSER_PREVIEW]` (Common for auto modes)
+   - Write `[BROWSER_PREVIEW] http://localhost:3000` on the first line. This boots the target web app on the Verantyx Sandbox and loads the UI screenshot directly into your visual context block, helping you iterate on design visually.
+6. `REQUEST_JCROSS_MAP: \`[tag]\`` (JCross Spatial Memory Fetch)
+   - Request lightweight summary of spatial nodes indexed by Kanji tags (e.g. `[認]` for Auth). Reconstructs context post-amnesia.
+7. `REQUEST_FETCH_CODE: \`[path]\`` (JIT File Loader)
+   - When the lightweight JCross map indicates you must physically edit a logic block, fetch the raw file content securely using this tool.
+8. `REQUEST_TRACE_LOGIC: \`[node_id]\`` (Dependency Tracer)
+   - Find all dependent/connected files and structures of a specific JCross node ID.
 
 [IMPORTANT]
 - Do not greet the user. However, you MUST write natural language context specifically aimed at `gemma4:31b` before your raw commands, explaining "why you are running this command/edit". Too little context causes the executor to fail.
@@ -620,6 +632,66 @@ Personality: {persona_traits}
                         match std::fs::read_to_string(&full_path) {
                             Ok(c) => feedback.push_str(&format!("[SYS: Read {}]\n```\n{}\n```\n\n", path, c)),
                             Err(e) => feedback.push_str(&format!("[SYS: Error reading {}]: {}\n\n", path, e)),
+                        }
+                    }
+
+                    // REQUEST_JCROSS_MAP
+                    let jcross_re = regex::Regex::new(r"REQUEST_JCROSS_MAP:\s*`([^`]+)`").unwrap();
+                    for cap in jcross_re.captures_iter(&last_response_rendered) {
+                        tools_used = true;
+                        let tag = &cap[1];
+                        info!("[StealthGemini-Tools] Reading JCross Map for Tag: {}", tag);
+                        let mut si = ronin_core::memory_bridge::spatial_index::SpatialIndex::new(self.cwd.clone());
+                        let _ = si.hydrate().await;
+                        // query_nearest finds nearest nodes matching concept/tag
+                        let nodes = si.query_nearest(tag, 10);
+                        let mut sum = String::new();
+                        for n in nodes {
+                            sum.push_str(&format!("NODE: {} (Abstract: {})\nConcept: {}\n", n.key, n.abstract_level, n.concept));
+                        }
+                        if sum.is_empty() {
+                            feedback.push_str(&format!("[SYS: No JCross nodes found for tag `{}`]\n\n", tag));
+                        } else {
+                            feedback.push_str(&format!("[SYS: JCross Map for `{}`]\n```\n{}\n```\n\n", tag, sum));
+                        }
+                    }
+
+                    // REQUEST_FETCH_CODE
+                    let fetch_re = regex::Regex::new(r"REQUEST_FETCH_CODE:\s*`([^`]+)`").unwrap();
+                    for cap in fetch_re.captures_iter(&last_response_rendered) {
+                        tools_used = true;
+                        let path = &cap[1];
+                        if !is_safe_path(path, &self.cwd, self.global_access) {
+                            feedback.push_str(&format!("[SYS: DENIED] Sandbox Error: You are not permitted to access {} in Project-Only mode.\n\n", path));
+                            continue;
+                        }
+                        info!("[StealthGemini-Tools] JIT Fetching Raw Code: {}", path);
+                        let full_path = self.cwd.join(path);
+                        match std::fs::read_to_string(&full_path) {
+                            Ok(c) => feedback.push_str(&format!("[SYS: Fetched Raw Code {}]\n```\n{}\n```\n\n", path, c)),
+                            Err(e) => feedback.push_str(&format!("[SYS: Error fetching {}]: {}\n\n", path, e)),
+                        }
+                    }
+
+                    // REQUEST_TRACE_LOGIC
+                    let trace_re = regex::Regex::new(r"REQUEST_TRACE_LOGIC:\s*`([^`]+)`").unwrap();
+                    for cap in trace_re.captures_iter(&last_response_rendered) {
+                        tools_used = true;
+                        let node_id = &cap[1];
+                        info!("[StealthGemini-Tools] Tracing JCross Logic for: {}", node_id);
+                        let mut si = ronin_core::memory_bridge::spatial_index::SpatialIndex::new(self.cwd.clone());
+                        let _ = si.hydrate().await;
+                        if let Some(node) = si.nodes.get(node_id) {
+                            let mut sum = String::new();
+                            for r in &node.relations {
+                                sum.push_str(&format!("-> {} ({}: {})\n", r.target_id, match &r.rel_type {
+                                    ronin_core::memory_bridge::kanji_ontology::RelationType::Derived => "派生/Derived",
+                                    _ => "関連/Rel",
+                                }, r.strength));
+                            }
+                            feedback.push_str(&format!("[SYS: Logic Trace for `{}`]\n```\nDependencies:\n{}\n```\n\n", node_id, sum));
+                        } else {
+                            feedback.push_str(&format!("[SYS: JCross Node `{}` not found in spatial memory]\n\n", node_id));
                         }
                     }
 

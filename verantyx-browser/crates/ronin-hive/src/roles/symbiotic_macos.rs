@@ -290,6 +290,13 @@ impl SymbioticMacOS {
                         set xPos to item 1 of bnd
                         {}
                             set index of w to 1
+                            set tabList to every tab of w
+                            repeat with t in tabList
+                                if URL of t contains "gemini.google.com" then
+                                    set current tab of w to t
+                                    exit repeat
+                                end if
+                            end repeat
                             exit repeat
                         end if
                     end try
@@ -297,7 +304,7 @@ impl SymbioticMacOS {
             end tell
         "#, condition);
 
-        Command::new("osascript").arg("-e").arg(&script).output().await?;
+        tokio::process::Command::new("osascript").arg("-e").arg(&script).output().await?;
         Ok(())
     }
 

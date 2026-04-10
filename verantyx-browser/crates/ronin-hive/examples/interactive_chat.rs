@@ -58,7 +58,7 @@ fn create_spinner(msg: &str) -> ProgressBar {
     let pb = ProgressBar::new_spinner();
     pb.set_style(ProgressStyle::default_spinner()
         .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏", "✔"])
-        .template("{spinner:.cyan} {msg}").unwrap()
+        .template("\x1b[38;2;240;148;100m{spinner}\x1b[0m {msg}").unwrap()
     );
     pb.enable_steady_tick(Duration::from_millis(80));
     pb.set_message(msg.to_string());
@@ -72,68 +72,82 @@ async fn main() -> anyhow::Result<()> {
         .with_max_level(Level::INFO)
         .finish();
     tracing::subscriber::set_global_default(subscriber).unwrap();
-
-    let title = console::style("Verantyx Engine (OpenClaude Style)").color256(208).bold();
-    println!("\n{}\n", title);
     
-    let init_spinner = create_spinner("Spawning Custom Stealth Browser...");
-
-    // 2. Dual-Window Visualization Orchestration (AppleScript)
-    let split_screen_js = r#"
-    do shell script "open -a Safari"
-    delay 1.5
-    
-    tell application "Finder"
-        set bnd to bounds of window of desktop
-        set screenWidth to item 3 of bnd
-        set screenHeight to item 4 of bnd
-    end tell
-    
-    -- Biraz küçült, we want the width to be about 65% to show the desktop UI
-    set winHeight to (screenHeight * 0.85) as integer
-    set topMargin to 50
-    set winWidth to (screenWidth * 0.65) as integer
-    
-    -- Boot Safari with 3 cascading overlapping windows that preserve Desktop Layout
-    tell application "Safari"
-        activate
-        delay 0.5
-        
-        -- Left Window (Worker)
-        make new document with properties {URL:"https://gemini.google.com/app"}
-        set _w1 to front window
-        set bounds of _w1 to {10, topMargin, 10 + winWidth, topMargin + winHeight}
-        
-        -- Middle Window (Senior)
-        make new document with properties {URL:"https://gemini.google.com/app"}
-        set _w2 to front window
-        set bounds of _w2 to {100, topMargin, 100 + winWidth, topMargin + winHeight}
-        
-        -- Right Window (Apprentice)
-        make new document with properties {URL:"https://gemini.google.com/app"}
-        set _w3 to front window
-        set bounds of _w3 to {200, topMargin, 200 + winWidth, topMargin + winHeight}
-    end tell
-    "#;
-    let _ = tokio::process::Command::new("osascript")
-        .arg("-e")
-        .arg(split_screen_js)
-        .output()
-        .await;
-    init_spinner.finish_with_message(format!("{}", console::style("✔ Browser Coordinated").green()));
-
-    // Load Config (Wizard if first time)
-    let mut config = ronin_hive::config::VerantyxConfig::load_or_wizard(&std::env::current_dir().unwrap());
-    
-    // In interactive chat, we respect whatever standard config logic generated (e.g. from the wizard)
-    // rather than reprompting every time over and over.
-
-    let is_api_mode = config.automation_mode == ronin_hive::config::AutomationMode::HybridApi;
+    // 1.5 Load Config (Wizard if first time)
+    let config = ronin_hive::config::VerantyxConfig::load_or_wizard(&std::env::current_dir().unwrap());
     
     // Save to persist their latest explicit choice
     let _ = config.save(&std::env::current_dir().unwrap());
 
+    let is_api_mode = config.automation_mode == ronin_hive::config::AutomationMode::HybridApi;
     let is_ja = config.language == "ja";
+
+    // 2. Dual-Window Visualization Orchestration (AppleScript) - Skip in API modes
+    if !is_api_mode {
+        let init_spinner = create_spinner(if is_ja { "ステルスブラウザを起動・調整中..." } else { "Spawning Custom Stealth Browser..." });
+        let split_screen_js = r#"
+        do shell script "open -a Safari"
+        delay 1.5
+        
+        tell application "Finder"
+            set bnd to bounds of window of desktop
+            set screenWidth to item 3 of bnd
+            set screenHeight to item 4 of bnd
+        end tell
+        
+        set winHeight to (screenHeight * 0.85) as integer
+        set topMargin to 50
+        set winWidth to (screenWidth * 0.65) as integer
+        
+        tell application "Safari"
+            activate
+            delay 0.5
+            
+            make new document with properties {URL:"https://gemini.google.com/app"}
+            set _w1 to front window
+            set bounds of _w1 to {10, topMargin, 10 + winWidth, topMargin + winHeight}
+            
+            make new document with properties {URL:"https://gemini.google.com/app"}
+            set _w2 to front window
+            set bounds of _w2 to {100, topMargin, 100 + winWidth, topMargin + winHeight}
+            
+            make new document with properties {URL:"https://gemini.google.com/app"}
+            set _w3 to front window
+            set bounds of _w3 to {200, topMargin, 200 + winWidth, topMargin + winHeight}
+        end tell
+        "#;
+        let _ = tokio::process::Command::new("osascript")
+            .arg("-e")
+            .arg(split_screen_js)
+            .output()
+            .await;
+        init_spinner.finish_with_message(format!("{}", console::style(if is_ja { "✔ ブラウザをリンク完了" } else { "✔ Browser Coordinated" }).green()));
+    }
+
+    // 2.5 Print the OpenClaude-style Banner
+    ronin_hive::openclaude_ui::print_startup_screen(&config.cloud_provider, true);
+
+    if config.nightwatch.enabled {
+        let watch_dir = if config.nightwatch.watch_dir == "." {
+            std::env::current_dir().unwrap()
+        } else {
+            std::path::PathBuf::from(&config.nightwatch.watch_dir)
+        };
+        ronin_hive::nightwatch::observer::FileObserver::new(watch_dir.clone()).start_detached();
+
+        // Phase 1: Nightwatch Background Distillation Daemon
+        let daemon_cfg = config.clone();
+        let daemon_dir = watch_dir.clone();
+        tokio::spawn(async move {
+            // Check the queue every 60 seconds
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
+            let daemon = ronin_hive::nightwatch::daemon::NightwatchDaemon::new(daemon_cfg, daemon_dir);
+            loop {
+                interval.tick().await;
+                daemon.run_knowledge_distillation().await;
+            }
+        });
+    }
 
     let env_key_name = match config.cloud_provider {
         ronin_hive::config::CloudProvider::Gemini => "GEMINI_API_KEY",
@@ -193,6 +207,13 @@ async fn main() -> anyhow::Result<()> {
         println!("{}", console::style(text).color256(147)); // Soft purple/blue
     }
     
+    // --- Boot UI Bridge Server ---
+    let bridge = std::sync::Arc::new(ronin_hive::nightwatch::server::VeraUiBridge::new());
+    let bridge_clone = bridge.clone();
+    tokio::spawn(async move {
+        ronin_hive::nightwatch::server::VeraUiBridge::start(bridge_clone).await;
+    });
+
     println!();
 
     let mut conversation_turns = 0;
@@ -206,6 +227,18 @@ async fn main() -> anyhow::Result<()> {
     let pfx_temp = if is_ja { "最終回答仮" } else { "[TEMP_FINAL]" };
     let pfx_final_out = if is_ja { "最終出力" } else { "[FINAL_OUTPUT]" };
 
+    // --- Stdin Background Reader ---
+    let (stdin_tx, stdin_rx) = std::sync::mpsc::channel::<String>();
+    std::thread::spawn(move || {
+        let stdin = std::io::stdin();
+        loop {
+            let mut buf = String::new();
+            if stdin.read_line(&mut buf).is_ok() {
+                let _ = stdin_tx.send(buf.trim().to_string());
+            }
+        }
+    });
+
     // 4. Interactive Chat Loop
     loop {
         let is_new_user_turn = auto_forward_payload.is_empty();
@@ -216,16 +249,151 @@ async fn main() -> anyhow::Result<()> {
             println!("{}", console::style("  [System Auto Forwarding Execution Result to Worker]").dim());
             val
         } else {
-            print!("{} ", console::style("❯").color256(208).bold());
+            print!("\x1b[38;2;240;148;100m❯\x1b[0m ");
             io::stdout().flush().unwrap();
-            let mut input = String::new();
-            io::stdin().read_line(&mut input).unwrap();
-            input.trim().to_string()
+            
+            let mut input_res = String::new();
+            loop {
+                // Check Crucible UI Queue
+                if let Ok(mut q) = bridge.crucible_command_queue.lock() {
+                    if let Some(cmd) = q.take() {
+                        println!("{}", console::style(&cmd).yellow()); // visually print it so user sees
+                        input_res = cmd;
+                        break;
+                    }
+                }
+                
+                // Check Stdin Input
+                if let Ok(line) = stdin_rx.try_recv() {
+                    input_res = line;
+                    break;
+                }
+                
+                // Yield to prevent CPU 100%
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+            input_res
         };
 
         if query == "exit" || query == "quit" {
             println!("Exiting Interactive Mode.");
             break;
+        }
+
+        if query == "vera" || query == "show memory" || query == "memory" || query == "veramemory" {
+            let target_dir = std::env::current_dir().unwrap();
+            
+            // Render on demand to ensure latest state
+            ronin_hive::nightwatch::visualizer::VeraMemoryVisualizer::generate_html(&spatial_index, &target_dir);
+            
+            let html_path = target_dir.join(".ronin").join("vera_memory.html");
+            if html_path.exists() {
+                if is_ja { println!("{}", console::style("✨ Vera Memoryのダッシュボードを展開します...").cyan()); }
+                else { println!("{}", console::style("✨ Opening Vera Memory Dashboard...").cyan()); }
+                
+                #[cfg(target_os = "macos")]
+                let _ = std::process::Command::new("open").arg(&html_path).spawn();
+                #[cfg(target_os = "windows")]
+                let _ = std::process::Command::new("cmd").args(&["/C", "start", html_path.to_str().unwrap()]).spawn();
+                #[cfg(target_os = "linux")]
+                let _ = std::process::Command::new("xdg-open").arg(&html_path).spawn();
+            } else {
+                if is_ja { println!("{}", console::style("⚠ Vera Memoryはまだ生成されていません。Nightwatchデーモンがファイル解析を終えるのをお待ちください。").yellow()); }
+                else { println!("{}", console::style("⚠ Vera Memory is not generated yet. Please wait for Nightwatch to complete its first distillation loop.").yellow()); }
+            }
+            continue;
+        }
+
+        if query.starts_with("time-machine") {
+            let parts: Vec<&str> = query.split_whitespace().collect();
+            if parts.len() >= 2 {
+                let path = parts[1].to_string();
+                if is_ja { println!("{}", console::style(format!("🚀 タイムマシン・プロトコル発動: {} を全探索し、空間記憶を構築します...", path)).magenta().bold()); }
+                else { println!("{}", console::style(format!("🚀 TIME MACHINE INITIATED: Full scanning {} to build spatial memory...", path)).magenta().bold()); }
+                
+                let mut indexer = ronin_hive::nightwatch::time_machine::TimeMachineIndexer::new(&path);
+                // We run it synchronously or block on it because it's a massive batch process initiated manually
+                indexer.run_scan(&mut spatial_index).await;
+                
+                if is_ja { println!("{}", console::style("✅ タイムマシン処理が完了し、JCrossが大規模更新されました。").green().bold()); }
+                else { println!("{}", console::style("✅ Time Machine scan complete. JCross spatial index massively updated.").green().bold()); }
+                continue;
+            } else {
+                println!("{}", console::style("Usage: time-machine <path_to_scan>").yellow());
+                continue;
+            }
+        }
+
+        if query.starts_with("crucible ") {
+            let parts: Vec<&str> = query.split_whitespace().collect();
+            let files: Vec<&str> = parts[1..].to_vec();
+            if files.len() >= 2 {
+                if files.len() > 10 {
+                    println!("{}", console::style("⚠ Crucible supports a maximum of 10 nodes simultaneously.").red());
+                    continue;
+                }
+                
+                let mut contents_block = String::new();
+                for (i, file) in files.iter().enumerate() {
+                    let jcat = spatial_index.nodes.values().find(|n| n.env_hash.as_deref() == Some(*file)).map(|n| n.to_jcross());
+                    let content = jcat.unwrap_or_else(|| {
+                        if is_ja { format!("【未解析の外部ファイル】\nパス: {}", file) }
+                        else { format!("[UNPARSED EXTERNAL FILE]\nPath: {}", file) }
+                    });
+                    contents_block.push_str(&format!("\nファイル{} ({})\n```jcross\n{}\n```\n", i+1, file, content));
+                }
+                
+                let mut prompt = if is_ja {
+                    format!("【🚨 VERA LAB CRUCIBLE SYNTHESIS 🚨】\n\n以下の{}個のファイルの中間表現（JCross仕様のLossless Semantic Compression）を与えます。これらの構造（タグ、抽象度、関係性）を融合させ、それらの機能の『中間』や『架け橋』となる全く新しいロジック（またはアーキテクチャ）のIR（中間表現）と具体的なコード案をシミュレーションして出力せよ。\n{}", files.len(), contents_block)
+                } else {
+                    format!("[🚨 VERA LAB CRUCIBLE SYNTHESIS 🚨]\n\nI am giving you the JCross Lossless Semantic Compressions for {} files. Synthesize their core concepts (Kanji tags, abstraction, topology) and propose a brand new hybrid architectural logic or bridge code that combines their functions. Provide a high-level IR and code simulation.\n{}", files.len(), contents_block)
+                };
+
+                prompt.push_str("\n\nOUTPUT FORMAT REQUIREMENT:\nYou MUST output ONLY a valid JSON object matching this schema. Do not output anything outside the JSON block.\n```json\n{\n  \"synthesized_jcross\": {\n    \"kanji_tags\": [\"[創:0.9]\", \"[結:0.8]\"],\n    \"concept\": \"Description of the fused architecture\",\n    \"abstract_level\": 0.8\n  },\n  \"explanation\": \"Brief explanation of how the architectures were fused.\",\n  \"vision_prompt\": \"A highly detailed, cinematic concept art of a glowing cyberpunk architecture representing [concept], neural networks fusing...\"\n}\n```");
+
+                let env = Envelope {
+                    message_id: Uuid::new_v4(),
+                    sender: "UserREPL".to_string(),
+                    recipient: "SeniorSupervisor".to_string(), // Send to highest reasoning unit
+                    payload: serde_json::to_string(&HiveMessage::Objective(prompt))?,
+                };
+                
+                println!("{}", console::style(format!("🌀 CRUCIBLE INITIATED: Fusing Semantics of {} files in memory...", files.len())).bold().yellow());
+                
+                let sp_synth = create_spinner("Synthesizing JCross Logic Crucible...");
+                if let Some(reply) = senior_agent.receive(env).await? {
+                    if let Ok(HiveMessage::Objective(synth_res)) = serde_json::from_str(&reply.payload) {
+                        sp_synth.finish_and_clear();
+                        
+                        let clean_json = synth_res.trim()
+                            .trim_start_matches("```json")
+                            .trim_start_matches("```")
+                            .trim_end_matches("```")
+                            .trim();
+                            
+                        if let Ok(json_val) = serde_json::from_str::<serde_json::Value>(clean_json) {
+                            if let Some(vision_prompt) = json_val.get("vision_prompt").and_then(|v| v.as_str()) {
+                                println!("\n{}", console::style("✨ [VISION AI PROMPT GENERATED] ✨").magenta().bold());
+                                println!("{}", console::style(vision_prompt).blue());
+                                println!("{}", console::style("────────────────────────────────────────────").dim());
+                            }
+                            
+                            println!("{}", console::style("🚀 Launching 3D Crucible Visualizer...").green());
+                            ronin_hive::nightwatch::visualizer_3d::generate_3d_html(&json_val);
+                        } else {
+                            println!("{}", console::style("⚠ Failed to parse pure JSON. AI response was:").red());
+                            println!("\n{}\n", synth_res);
+                        }
+                    }
+                } else {
+                    sp_synth.finish_and_clear();
+                }
+                
+                continue;
+            } else {
+                println!("{}", console::style("Usage: crucible <file1_path> <file2_path>").yellow());
+                continue;
+            }
         }
 
         if query.is_empty() { continue; }
@@ -387,7 +555,50 @@ If it exceeds 10,000 characters, detail only the 10 most recent events and summa
         let trimmed_gemini_output = gemini_response_payload.trim_start();
         
         // Priority checks using `.contains` to be highly fault-tolerant against Gemini's conversational preamble
-        if trimmed_gemini_output.contains(pfx_temp) {
+        // --- JCross MCP Tool Interception ---
+        if trimmed_gemini_output.starts_with("REQUEST_FETCH_CODE:") {
+            let path = trimmed_gemini_output.replace("REQUEST_FETCH_CODE:", "").trim().to_string();
+            let clean_path = path.trim_matches('`').trim_matches('\'').trim_matches('"');
+            println!("{}", console::style(format!("🛠️ [MCP Action] FETCH_RAW_CODE: {}", clean_path)).cyan());
+            
+            match std::fs::read_to_string(clean_path) {
+                Ok(content) => {
+                    auto_forward_payload = format!("[OBSERVATION (FETCH_CODE)]: \n```\n{}\n```", content);
+                }
+                Err(e) => {
+                    auto_forward_payload = format!("[OBSERVATION ERROR]: Failed to read file: {}", e);
+                }
+            }
+            continue;
+        } else if trimmed_gemini_output.starts_with("REQUEST_JCROSS_MAP:") {
+            let tag = trimmed_gemini_output.replace("REQUEST_JCROSS_MAP:", "").trim().to_string();
+            let clean_tag = tag.trim_matches('`').trim_matches('\'').trim_matches('"');
+            println!("{}", console::style(format!("🛠️ [MCP Action] READ_JCROSS_MAP: {}", clean_tag)).cyan());
+            
+            let nodes = spatial_index.query_nearest(clean_tag, 15);
+            let mut summary = String::new();
+            for n in nodes {
+                summary.push_str(&format!("- Node [{}]: Concept: {}, Tags: {:?}\n", n.key, n.concept, n.kanji_tags));
+            }
+            
+            if summary.is_empty() {
+                auto_forward_payload = format!("[OBSERVATION (JCROSS_MAP)]: No matches found for tag '{}'.", clean_tag);
+            } else {
+                auto_forward_payload = format!("[OBSERVATION (JCROSS_MAP)] Nearest Concept Nodes:\n{}", summary);
+            }
+            continue;
+        } else if trimmed_gemini_output.starts_with("REQUEST_TRACE_LOGIC:") {
+            let node = trimmed_gemini_output.replace("REQUEST_TRACE_LOGIC:", "").trim().to_string();
+            let clean_node = node.trim_matches('`').trim_matches('\'').trim_matches('"');
+            println!("{}", console::style(format!("🛠️ [MCP Action] TRACE_LOGIC: {}", clean_node)).cyan());
+            
+            if let Some(target) = spatial_index.read_node(clean_node) {
+                auto_forward_payload = format!("[OBSERVATION (TRACE_LOGIC)] Node Logic:\n{}\nRelations: {:?}", target.content, target.relations);
+            } else {
+                auto_forward_payload = format!("[OBSERVATION ERROR]: Node {} not found.", clean_node);
+            }
+            continue;
+        } else if trimmed_gemini_output.contains(pfx_temp) {
             seen_final_answer += 1;
             
             let sp_senior = create_spinner("Auditing with Senior and generating Final Answer...");

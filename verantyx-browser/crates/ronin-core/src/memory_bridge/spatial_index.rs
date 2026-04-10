@@ -82,89 +82,70 @@ impl MemoryNode {
 
     pub fn parse_jcross(raw: &str) -> Option<Self> {
         let mut node = Self::default();
-        let mut reflex_buffer = String::new();
-        let mut content_buffer = String::new();
-        let mut in_content = false;
-        let mut in_reflex = false;
         
-        let lines: Vec<&str> = raw.lines().collect();
-        for mut i in 0..lines.len() {
-            let line = lines[i].trim();
-            
-            if in_content {
-                if line == "===" { 
-                    in_content = false;
-                    continue; 
-                }
-                content_buffer.push_str(line);
-                content_buffer.push('\n');
-                continue;
-            }
+        let id_re = regex::Regex::new(r"■ JCROSS_NODE_([^\s]+)").unwrap();
+        if let Some(cap) = id_re.captures(raw) {
+            node.key = cap[1].trim().to_string();
+        } else {
+            return None; // Invalid file format lacking strict header
+        }
 
-            if in_reflex {
-                if line == "===" {
-                    in_reflex = false;
-                    continue;
-                }
-                reflex_buffer.push_str(line);
-                reflex_buffer.push('\n');
-                continue;
-            }
-
-            if line.starts_with("■ JCROSS_NODE_") {
-                node.key = line.replace("■ JCROSS_NODE_", "").trim().to_string();
-            } else if line.starts_with("【空間座相】") {
-                if i + 1 < lines.len() {
-                    let next_line = lines[i+1].trim();
-                    let parts: Vec<&str> = next_line.split("] [").collect();
-                    for ref p in parts {
-                        if let Some(tag) = KanjiTag::parse(p) {
-                            node.kanji_tags.push(tag);
-                        }
-                    }
-                }
-            } else if line.starts_with("【次元概念】") {
-                if i + 1 < lines.len() {
-                    node.concept = lines[i+1].trim().to_string();
-                }
-            } else if line.starts_with("【時間刻印】") {
-                if i + 1 < lines.len() {
-                    if let Ok(dt) = DateTime::parse_from_rfc3339(lines[i+1].trim()) {
-                        node.time_stamp = dt.timestamp() as f64;
-                    }
-                }
-            } else if line.starts_with("【環境刻印】") {
-                if i + 1 < lines.len() {
-                    node.env_hash = Some(lines[i+1].trim().to_string());
-                }
-            } else if line.starts_with("【連帯】") {
-                while i + 1 < lines.len() && !lines[i+1].trim().is_empty() && !lines[i+1].starts_with("【") {
-                    let rel_line = lines[i+1].trim();
-                    let r_parts: Vec<&str> = rel_line.split(':').collect();
-                    if r_parts.len() >= 2 {
-                        let target = r_parts[0].trim().to_string();
-                        let r_type = RelationType::from_str(r_parts[1].trim());
-                        let str_val = if r_parts.len() > 2 { r_parts[2].parse::<f32>().unwrap_or(0.5) } else { 0.5 };
-                        node.relations.push(TypedRelation { target_id: target, rel_type: r_type, strength: str_val });
-                    }
-                    i += 1;
-                }
-            } else if line.starts_with("【抽象度】") {
-                if i + 1 < lines.len() {
-                    node.abstract_level = lines[i+1].trim().parse::<f64>().unwrap_or(0.5);
-                }
-            } else if line.starts_with("【反射】") {
-                in_reflex = true;
-            } else if line.starts_with("[本質記憶]") {
-                in_content = true;
+        let tags_re = regex::Regex::new(r"【空間座相】\s*([^\r\n]+)").unwrap();
+        if let Some(cap) = tags_re.captures(raw) {
+            let tags_str = &cap[1];
+            for p in tags_str.split("] [") {
+                let resolved_tags = KanjiTag::resolve(p.trim());
+                node.kanji_tags.extend(resolved_tags);
             }
         }
 
-        node.content = content_buffer.trim().to_string();
-        if !reflex_buffer.trim().is_empty() {
-            node.reflex_action = Some(reflex_buffer.trim().to_string());
+        let concept_re = regex::Regex::new(r"【次元概念】\s*([^\r\n]+)").unwrap();
+        if let Some(cap) = concept_re.captures(raw) {
+            node.concept = cap[1].trim().to_string();
         }
-        
+
+        let time_re = regex::Regex::new(r"【時間刻印】\s*([^\r\n]+)").unwrap();
+        if let Some(cap) = time_re.captures(raw) {
+            if let Ok(dt) = DateTime::parse_from_rfc3339(cap[1].trim()) {
+                node.time_stamp = dt.timestamp() as f64;
+            }
+        }
+
+        let env_re = regex::Regex::new(r"【環境刻印】\s*([^\r\n]+)").unwrap();
+        if let Some(cap) = env_re.captures(raw) {
+            node.env_hash = Some(cap[1].trim().to_string());
+        }
+
+        let abs_re = regex::Regex::new(r"【抽象度】\s*([\d\.]+)").unwrap();
+        if let Some(cap) = abs_re.captures(raw) {
+            node.abstract_level = cap[1].trim().parse::<f64>().unwrap_or(0.5);
+        }
+
+        // Multi-line relation parsing
+        let rel_block_re = regex::Regex::new(r"【連帯】\s*([\s\S]*?)(?:【|\[)").unwrap();
+        if let Some(cap) = rel_block_re.captures(raw) {
+            for line in cap[1].lines() {
+                let ln = line.trim();
+                let r_parts: Vec<&str> = ln.split(':').collect();
+                if r_parts.len() >= 2 {
+                    let target = r_parts[0].trim().to_string();
+                    let r_type = RelationType::from_str(r_parts[1].trim());
+                    let str_val = if r_parts.len() > 2 { r_parts[2].parse::<f32>().unwrap_or(0.5) } else { 0.5 };
+                    node.relations.push(TypedRelation { target_id: target, rel_type: r_type, strength: str_val });
+                }
+            }
+        }
+
+        let reflex_re = regex::Regex::new(r"【反射】\s*([\s\S]*?)\s*===").unwrap();
+        if let Some(cap) = reflex_re.captures(raw) {
+            node.reflex_action = Some(cap[1].trim().to_string());
+        }
+
+        let content_re = regex::Regex::new(r"\[本質記憶\]\s*([\s\S]*?)\s*===").unwrap();
+        if let Some(cap) = content_re.captures(raw) {
+            node.content = cap[1].trim().to_string();
+        }
+
         if node.key == "UNCLASSIFIED" { return None; }
         
         Some(node)
@@ -279,6 +260,14 @@ impl SpatialIndex {
             nodes: HashMap::new(),
             ontology: KanjiOp::standard_ontology()
         }
+    }
+
+    pub fn read_node(&self, key: &str) -> Option<MemoryNode> {
+        self.nodes.get(key).cloned()
+    }
+
+    pub fn list_all_keys(&self) -> Vec<String> {
+        self.nodes.keys().cloned().collect()
     }
 
     /// Hydrates isolated `.jcross` text nodes utilizing `.jidx` caches

@@ -146,8 +146,13 @@ impl Actor for SupervisorGeminiActor {
 
                     // Step 3: Wait for LLM and signal extraction
                     if cfg.automation_mode == crate::config::AutomationMode::AutoStealth {
-                        println!("{} ⏳ Waiting 6 seconds for Safari Gemini rendering...", console::style("[AUTO]").cyan());
-                        tokio::time::sleep(tokio::time::Duration::from_secs(6)).await;
+                        let base_wait = 20; // Require decent wait for visual LLM processing
+                        let char_count = padded_prompt.chars().count() as u64;
+                        let dynamic_wait = char_count / 100;
+                        let wait_time = std::cmp::min(base_wait + dynamic_wait, 60);
+                        
+                        println!("{} ⏳ Waiting {} seconds for Safari Gemini rendering...", console::style("[AUTO]").cyan(), wait_time);
+                        tokio::time::sleep(tokio::time::Duration::from_secs(wait_time)).await;
                     } else {
                         let confirm_prompt = if self.is_ja { "✔ 回答が出たら Cmd+C でコピーして選択" } else { "✔ Copy answer (Cmd+C) and press Enter" };
                         let _ = dialoguer::Select::new().with_prompt(confirm_prompt)
@@ -155,7 +160,6 @@ impl Actor for SupervisorGeminiActor {
                     }
                     
                     // Step 4: Autonomous copy logic. 
-                    // Note: Both manual and auto use the geometric extractor here to ensure structural unity!
                     if cfg.automation_mode == crate::config::AutomationMode::AutoStealth {
                         println!("{} ⏳ Executing autonomous visual extraction...", console::style("[SYSTEM]").cyan());
                         if let Err(e) = crate::roles::symbiotic_macos::SymbioticMacOS::auto_visual_calibrated_extract_and_cleanup().await {
@@ -164,23 +168,33 @@ impl Actor for SupervisorGeminiActor {
                         tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
                     }
 
-                    break;
-                }
-                
-                let gemini_response = crate::roles::symbiotic_macos::SymbioticMacOS::get_clipboard().await.unwrap_or_default();
-                        
-                let success_ext = if self.is_ja { format!("✔ 自動抽出完了！({}文字)", gemini_response.chars().count()) } else { format!("✔ Automated Extraction done! ({} chars)", gemini_response.chars().count()) };
-                println!("{}", console::style(success_ext).green());
+                    // Retrieve OS Clipboard as Final Output
+                    let gemini_response = crate::roles::symbiotic_macos::SymbioticMacOS::get_clipboard().await.unwrap_or_default();
+                    
+                    // Validation Check: If extraction copied the prompt we just pasted, Gemini hasn't finished yet or extraction failed visually
+                    if cfg.automation_mode == crate::config::AutomationMode::AutoStealth {
+                        if gemini_response.trim() == padded_prompt.trim() || gemini_response.is_empty() {
+                            println!("{}", console::style(if self.is_ja { "❌ 抽出エラー (Geminiが応答中か要素が見つかりません)。再試行します..." } else { "❌ Extraction overlap. Gemini hasn't finished reading. Retrying..." }).red());
+                            tokio::time::sleep(tokio::time::Duration::from_millis(3000)).await;
+                            continue;
+                        }
+                    }
 
-                // Return the actual response
-                let reply = HiveMessage::Objective(gemini_response);
-                return Ok(Some(Envelope {
-                    message_id: Uuid::new_v4(),
-                    sender: self.name().to_string(),
-                    recipient: env.sender,
-                    payload: serde_json::to_string(&reply)?,
-                }));
+                    let success_ext = if self.is_ja { format!("✔ 自動抽出完了！({}文字)", gemini_response.chars().count()) } else { format!("✔ Automated Extraction done! ({} chars)", gemini_response.chars().count()) };
+                    println!("{}", console::style(success_ext).green());
+                    
+                    // Break the loop and return the validated response
+                    let reply = HiveMessage::Objective(gemini_response);
+                    return Ok(Some(Envelope {
+                        message_id: Uuid::new_v4(),
+                        sender: self.name().to_string(),
+                        recipient: env.sender,
+                        payload: serde_json::to_string(&reply)?,
+                    }));
+                }
             },
+
+
             _ => Ok(None)
         }
     }
