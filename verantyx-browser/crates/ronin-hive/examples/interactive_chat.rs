@@ -135,6 +135,22 @@ async fn main() -> anyhow::Result<()> {
 
     let is_ja = config.language == "ja";
 
+    let env_key_name = match config.cloud_provider {
+        ronin_hive::config::CloudProvider::Gemini => "GEMINI_API_KEY",
+        ronin_hive::config::CloudProvider::OpenAi => "OPENAI_API_KEY",
+        ronin_hive::config::CloudProvider::Anthropic => "ANTHROPIC_API_KEY",
+        ronin_hive::config::CloudProvider::DeepSeek => "DEEPSEEK_API_KEY",
+        ronin_hive::config::CloudProvider::OpenRouter => "OPENROUTER_API_KEY",
+        ronin_hive::config::CloudProvider::Groq => "GROQ_API_KEY",
+        ronin_hive::config::CloudProvider::Together => "TOGETHER_API_KEY",
+    };
+    
+    let cloud_api_key = std::env::var(env_key_name).unwrap_or_else(|_| {
+        let warning = format!("⚠ Warning: Missing {} in environment. Cloud Brain may fail.", env_key_name);
+        println!("{}", console::style(warning).yellow());
+        String::new()
+    });
+
     // 3. Spawn StealthGemini Actor
     let subagent_id = Uuid::new_v4();
     let mut ephemeral_worker = if is_api_mode {
@@ -148,7 +164,7 @@ async fn main() -> anyhow::Result<()> {
             is_ja, 
             ronin_hive::roles::stealth_gemini::SystemRole::ArchitectWorker, 
             1,
-            std::env::var("GEMINI_API_KEY").unwrap_or_default(),
+            cloud_api_key.clone(),
         ))
     } else {
         ActiveAgent::Stealth(StealthWebActor::new(
@@ -279,7 +295,7 @@ If it exceeds 10,000 characters, detail only the 10 most recent events and summa
                         is_ja, 
                         ronin_hive::roles::stealth_gemini::SystemRole::ArchitectWorker, 
                         1,
-                        std::env::var("GEMINI_API_KEY").unwrap_or_default(),
+                        cloud_api_key.clone(),
                     ))
                 } else {
                     ActiveAgent::Stealth(StealthWebActor::new(

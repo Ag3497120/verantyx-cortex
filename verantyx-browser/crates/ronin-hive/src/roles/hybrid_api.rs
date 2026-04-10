@@ -3,6 +3,8 @@ use crate::messages::HiveMessage;
 use crate::roles::stealth_gemini::SystemRole;
 use async_trait::async_trait;
 use ronin_core::models::provider::gemini::GeminiProvider;
+use ronin_core::models::provider::anthropic::AnthropicProvider;
+use ronin_core::models::provider::openai::OpenAiCompatibleProvider;
 use ronin_core::models::provider::ollama::OllamaProvider;
 use ronin_core::models::provider::{LlmMessage, LlmProvider};
 use ronin_core::models::sampling_params::{InferenceRequest, PromptFormat, SamplingParams};
@@ -22,7 +24,7 @@ pub struct HybridApiActor {
     pub is_japanese_mode: bool,
     pub role: SystemRole,
     pub tab_index: u8,
-    gemini_api_key: String,
+    cloud_api_key: String,
 }
 
 impl HybridApiActor {
@@ -37,7 +39,7 @@ impl HybridApiActor {
         is_japanese_mode: bool,
         role: SystemRole,
         tab_index: u8,
-        gemini_api_key: String,
+        cloud_api_key: String,
     ) -> Self {
         Self {
             id,
@@ -51,7 +53,7 @@ impl HybridApiActor {
             is_japanese_mode,
             role,
             tab_index,
-            gemini_api_key,
+            cloud_api_key,
         }
     }
 
@@ -95,26 +97,93 @@ TEXT TO ANONYMIZE:
         // Extract JSON mapping and sanitized text naive approach
         let sanitized_text = sanitize_result.clone(); // In reality, we must parse JSON vs Text. For simplicity assuming it outputs text and json.
 
-        // 2. Gemini API
-        info!("[HybridAPI-{}] Dispatching sanitized payload to Gemini API...", self.id);
-        let gemini_provider = GeminiProvider::new(&self.gemini_api_key);
-        let gemini_req = InferenceRequest {
-            model: "gemini-2.5-pro".to_string(), // Ensure using correct model
-            format: PromptFormat::GeminiContents,
-            stream: false,
-            sampling: SamplingParams::for_midweight().with_temperature(0.2),
-        };
+        // 2. Central Cloud API
+        let cfg = crate::config::VerantyxConfig::load(&self.cwd);
+        info!("[HybridAPI-{}] Dispatching sanitized payload to {:?} Engine...", self.id, cfg.cloud_provider);
         
-        let gemini_history = vec![LlmMessage {
+        let (cloud_provider, req): (Box<dyn LlmProvider>, InferenceRequest) = match cfg.cloud_provider {
+            crate::config::CloudProvider::Gemini => {
+                let provider = GeminiProvider::new(&self.cloud_api_key);
+                let req = InferenceRequest {
+                    model: "gemini-2.5-pro".to_string(), // Ensure using correct model
+                    format: PromptFormat::GeminiContents,
+                    stream: false,
+                    sampling: SamplingParams::for_midweight().with_temperature(0.2),
+                };
+                (Box::new(provider), req)
+            },
+            crate::config::CloudProvider::OpenAi => {
+                let provider = OpenAiCompatibleProvider::openai(&self.cloud_api_key);
+                let req = InferenceRequest {
+                    model: "gpt-4o".to_string(),
+                    format: PromptFormat::OpenAiChat,
+                    stream: false,
+                    sampling: SamplingParams::for_midweight().with_temperature(0.2),
+                };
+                (Box::new(provider), req)
+            },
+            crate::config::CloudProvider::Anthropic => {
+                let provider = AnthropicProvider::new(&self.cloud_api_key);
+                let req = InferenceRequest {
+                    model: "claude-3-5-sonnet-20241022".to_string(),
+                    format: PromptFormat::AnthropicMessages,
+                    stream: false,
+                    sampling: SamplingParams::for_midweight().with_temperature(0.2),
+                };
+                (Box::new(provider), req)
+            },
+            crate::config::CloudProvider::DeepSeek => {
+                let provider = OpenAiCompatibleProvider::deepseek(&self.cloud_api_key);
+                let req = InferenceRequest {
+                    model: "deepseek-reasoner".to_string(),
+                    format: PromptFormat::OpenAiChat,
+                    stream: false,
+                    sampling: SamplingParams::for_midweight().with_temperature(0.2),
+                };
+                (Box::new(provider), req)
+            },
+            crate::config::CloudProvider::OpenRouter => {
+                let provider = OpenAiCompatibleProvider::openrouter(&self.cloud_api_key);
+                let req = InferenceRequest {
+                    model: "google/gemini-2.5-pro".to_string(),
+                    format: PromptFormat::OpenAiChat,
+                    stream: false,
+                    sampling: SamplingParams::for_midweight().with_temperature(0.2),
+                };
+                (Box::new(provider), req)
+            },
+            crate::config::CloudProvider::Groq => {
+                let provider = OpenAiCompatibleProvider::groq(&self.cloud_api_key);
+                let req = InferenceRequest {
+                    model: "llama3-70b-8192".to_string(),
+                    format: PromptFormat::OpenAiChat,
+                    stream: false,
+                    sampling: SamplingParams::for_midweight().with_temperature(0.2),
+                };
+                (Box::new(provider), req)
+            },
+            crate::config::CloudProvider::Together => {
+                let provider = OpenAiCompatibleProvider::together(&self.cloud_api_key);
+                let req = InferenceRequest {
+                    model: "meta-llama/Llama-3.3-70B-Instruct-Turbo".to_string(),
+                    format: PromptFormat::OpenAiChat,
+                    stream: false,
+                    sampling: SamplingParams::for_midweight().with_temperature(0.2),
+                };
+                (Box::new(provider), req)
+            },
+        };
+
+        let cloud_history = vec![LlmMessage {
             role: "user".to_string(),
             content: sanitized_text.clone(),
         }];
 
-        let gemini_result = match gemini_provider.invoke(&gemini_req, &gemini_history).await {
+        let cloud_result = match cloud_provider.invoke(&req, &cloud_history).await {
             Ok(res) => res,
             Err(e) => {
-                warn!("[HybridAPI-{}] Gemini API Error: {}", self.id, e);
-                return format!("❌ Gemini Request Failed: {}", e);
+                warn!("[HybridAPI-{}] Cloud API Error: {}", self.id, e);
+                return format!("❌ Cloud Request Failed: {}", e);
             }
         };
 
@@ -129,11 +198,11 @@ Now, take this generated response and replace the dummy identifiers (e.g. [FILE_
 PREVIOUS MAPPING/SHIELD OUTPUT:
 {}
 
-GEMINI RESPONSE (with dummy IDs):
+GEMINI/CLOUD RESPONSE (with dummy IDs):
 {}
 
 Output ONLY the fully restored string. No commentary.
-", sanitize_result, gemini_result);
+", sanitize_result, cloud_result);
 
         let restore_history = vec![LlmMessage {
             role: "user".to_string(),

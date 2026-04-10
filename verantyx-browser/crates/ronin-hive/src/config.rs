@@ -20,6 +20,17 @@ pub enum AutomationMode {
     HybridApi,      // Qwen Proxy to Gemini Cloud API
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub enum CloudProvider {
+    Gemini,
+    OpenAi,
+    Anthropic,
+    DeepSeek,
+    OpenRouter,
+    Groq,
+    Together,
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct PrivacyConfig {
     pub auto_sync: bool,
@@ -31,6 +42,7 @@ pub struct VerantyxConfig {
     pub automation_mode: AutomationMode,
     pub persona: PersonaConfig,
     pub scheduler: SchedulerConfig,
+    pub cloud_provider: CloudProvider,
     pub privacy: PrivacyConfig,
 }
 
@@ -46,6 +58,7 @@ impl Default for VerantyxConfig {
             scheduler: SchedulerConfig {
                 night_watch_hour: 3,
             },
+            cloud_provider: CloudProvider::Gemini,
             privacy: PrivacyConfig {
                 auto_sync: false, // Default opt-out
             },
@@ -157,6 +170,49 @@ impl VerantyxConfig {
             _ => AutomationMode::Manual,
         };
 
+        let provider_title = if lang_idx == 0 { "--- [ 🧠 Cloud Brain Model Selection ] ---" } else { "--- [ 🧠 Cloud Brain Model Selection ] ---" };
+        let provider_desc = if lang_idx == 0 { "APIモード利用時などのコア思考エンジン（Cloud Brain）を選択します。対応するAPIキーが環境変数に設定されている必要があります。" } else { "Select the core Cloud Brain engine (Requires corresponding API keys in env)." };
+        println!("\n{}", console::style(provider_title).cyan());
+        println!("{}", provider_desc);
+
+        let provider_opts = &[
+            "Google Gemini API (gemini-2.5-pro)", 
+            "OpenAI API (gpt-4o, o3-mini)", 
+            "Anthropic API (claude-3-5-sonnet)", 
+            "DeepSeek API (deepseek-v3, r1)", 
+            "OpenRouter API", 
+            "Groq API (llama3-70b-8192)", 
+            "Together AI / Fireworks"
+        ];
+        
+        let default_prov_idx = match existing.cloud_provider {
+            CloudProvider::Gemini => 0,
+            CloudProvider::OpenAi => 1,
+            CloudProvider::Anthropic => 2,
+            CloudProvider::DeepSeek => 3,
+            CloudProvider::OpenRouter => 4,
+            CloudProvider::Groq => 5,
+            CloudProvider::Together => 6,
+        };
+
+        let prov_idx = dialoguer::Select::with_theme(&dialoguer::theme::ColorfulTheme::default())
+            .with_prompt(if lang_idx == 0 { "利用するプロバイダーを選択" } else { "Select Cloud Provider" })
+            .items(provider_opts)
+            .default(default_prov_idx)
+            .interact()
+            .unwrap();
+
+        let cloud_provider = match prov_idx {
+            0 => CloudProvider::Gemini,
+            1 => CloudProvider::OpenAi,
+            2 => CloudProvider::Anthropic,
+            3 => CloudProvider::DeepSeek,
+            4 => CloudProvider::OpenRouter,
+            5 => CloudProvider::Groq,
+            6 => CloudProvider::Together,
+            _ => CloudProvider::Gemini,
+        };
+
         let privacy_title = if lang_idx == 0 { "--- [ 🔒 Privacy & Community Model Export ] ---" } else { "--- [ 🔒 Privacy & Community Model Export ] ---" };
         let privacy_desc = if lang_idx == 0 { "ハルシネーション制御を含む成功した推論プロセス（JCross）をローカルからコミュニティに投稿しますか？（※ローカルパスや各種キーは常に自動サニタイズされて送信されます）" } else { "Do you consent to automatically export successful JCross inference memories to the community dataset? (Local paths and keys are automatically sanitized)" };
         println!("\n{}", console::style(privacy_title).blue());
@@ -178,6 +234,7 @@ impl VerantyxConfig {
             automation_mode,
             persona: PersonaConfig { name, personality },
             scheduler: SchedulerConfig { night_watch_hour },
+            cloud_provider,
             privacy: PrivacyConfig { auto_sync },
         };
 

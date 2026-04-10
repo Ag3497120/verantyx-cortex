@@ -10,6 +10,7 @@ use tokio::sync::mpsc;
 pub mod ollama;
 pub mod anthropic;
 pub mod gemini;
+pub mod openai;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Core Message Type

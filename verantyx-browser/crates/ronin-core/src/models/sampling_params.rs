@@ -95,6 +95,8 @@ pub enum PromptFormat {
     AnthropicMessages,
     /// Google Gemini's contents format
     GeminiContents,
+    /// OpenAI-compatible Chat format (used by OpenAI, DeepSeek, Groq, Together, OpenRouter)
+    OpenAiChat,
     /// Raw text prompt (legacy, for models that don't support chat format)
     RawText,
 }
