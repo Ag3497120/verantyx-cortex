@@ -46,6 +46,8 @@ pub enum MemorySubcommand {
     },
     /// Show token cost statistics for each zone
     Stats,
+    /// Launch an interactive system editor to manually edit JCross nodes
+    Edit,
 }
 
 pub async fn execute(args: MemoryArgs) -> Result<()> {
@@ -140,6 +142,68 @@ pub async fn execute(args: MemoryArgs) -> Result<()> {
             println!("  Total nodes  : {}", style(n).cyan());
             println!("  Front token cost : {} tokens", style(tokens).yellow());
             println!("  Memory root  : {}", style(config.memory.root_dir.display()).dim());
+        }
+
+        MemorySubcommand::Edit => {
+            let n = index.hydrate().await?;
+            if n == 0 {
+                println!("{} No memory nodes to edit.", style("⚠️").yellow());
+                return Ok(());
+            }
+
+            let zones = vec!["front", "near", "mid", "deep"];
+            let zone_idx = dialoguer::Select::with_theme(&dialoguer::theme::ColorfulTheme::default())
+                .with_prompt("Select Spatial Zone to edit")
+                .items(&zones)
+                .default(0)
+                .interact()?;
+            
+            let zone_str = zones[zone_idx];
+            let zone_path = config.memory.root_dir.join(zone_str);
+            
+            if !zone_path.exists() {
+                println!("{} Zone {} is currently empty.", style("⚠️").yellow(), zone_str);
+                return Ok(());
+            }
+
+            let mut files = vec![];
+            let mut entries = tokio::fs::read_dir(&zone_path).await?;
+            while let Some(entry) = entries.next_entry().await? {
+                if entry.path().extension().and_then(|e| e.to_str()) == Some("md") {
+                    files.push(entry.path());
+                }
+            }
+
+            if files.is_empty() {
+                println!("{} No JCross files found in {}.", style("⚠️").yellow(), zone_str);
+                return Ok(());
+            }
+
+            let file_names: Vec<String> = files.iter()
+                .map(|p| p.file_name().unwrap_or_default().to_string_lossy().to_string())
+                .collect();
+
+            let file_idx = dialoguer::Select::with_theme(&dialoguer::theme::ColorfulTheme::default())
+                .with_prompt("Select JCross memory node to edit")
+                .items(&file_names)
+                .default(0)
+                .interact()?;
+
+            let target_file = &files[file_idx];
+            
+            // Prefer $EDITOR, fallback to vim, or nano as next fallback.
+            let editor = std::env::var("EDITOR").unwrap_or_else(|_| "vim".to_string());
+            println!("{} Launching {} for {}...", style("✏️").cyan(), style(&editor).bold(), style(target_file.display()).dim());
+            
+            let status = std::process::Command::new(&editor)
+                .arg(target_file)
+                .status()?;
+
+            if status.success() {
+                println!("{} JCross spatial memory updated successfully.", style("✅").green());
+            } else {
+                println!("{} Editor exited with error.", style("❌").red());
+            }
         }
     }
 

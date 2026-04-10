@@ -60,34 +60,28 @@ impl StealthWebActor {
         self.current_turns = 0;
     }
 
-    /// Append failed execution or human rejection to JCross Anti-Pattern memory
-    fn append_anti_pattern(cwd: &std::path::Path, entry: &str) {
-        let p = cwd.join(".ronin").join("anti_pattern.jcross");
-        let mut ap = std::fs::read_to_string(&p).unwrap_or_default();
-        let lines: Vec<&str> = ap.lines().collect();
-        // Truncate to retain only the most recent 30 entries
-        if lines.len() > 30 {
-            ap = lines[lines.len() - 30..].join("\n");
-            ap.push('\n');
-        }
-        ap.push_str(entry);
-        ap.push('\n');
-        let _ = std::fs::write(&p, ap);
+    /// Write failed execution or restriction to JCross V4 Space
+    async fn append_anti_pattern_v4(cwd: &std::path::Path, entry: &str, concept: &str) {
+        let root = cwd.join(".ronin").join("experience.jcross"); // Legacy root passed to SpatialIndex
+        let mut idx = ronin_core::memory_bridge::spatial_index::SpatialIndex::new(root);
+        let key = format!("anti_{}", uuid::Uuid::new_v4().as_simple().to_string()[..8].to_string());
+        let mut node = ronin_core::memory_bridge::spatial_index::MemoryNode::new_v4(&key, entry);
+        node.concept = concept.to_string();
+        node.confidence = 0.5;
+        node.kanji_tags.push(ronin_core::memory_bridge::kanji_ontology::KanjiTag { name: "反".to_string(), weight: 1.0 });
+        let _ = idx.write_node(node).await;
     }
 
-    /// Append successful conclusions to JCross Experience memory
-    fn append_experience(cwd: &std::path::Path, entry: &str) {
-        let p = cwd.join(".ronin").join("experience.jcross");
-        let mut ap = std::fs::read_to_string(&p).unwrap_or_default();
-        let lines: Vec<&str> = ap.lines().collect();
-        // Truncate to retain only recent large chunks
-        if lines.len() > 100 {
-            ap = lines[lines.len() - 100..].join("\n");
-            ap.push('\n');
-        }
-        ap.push_str(entry);
-        ap.push('\n');
-        let _ = std::fs::write(&p, ap);
+    /// Write successful conclusion to JCross V4 Space
+    async fn append_experience_v4(cwd: &std::path::Path, entry: &str, concept: &str) {
+        let root = cwd.join(".ronin").join("experience.jcross");
+        let mut idx = ronin_core::memory_bridge::spatial_index::SpatialIndex::new(root);
+        let key = format!("exp_{}", uuid::Uuid::new_v4().as_simple().to_string()[..8].to_string());
+        let mut node = ronin_core::memory_bridge::spatial_index::MemoryNode::new_v4(&key, entry);
+        node.concept = concept.to_string();
+        node.kanji_tags.push(ronin_core::memory_bridge::kanji_ontology::KanjiTag { name: "確".to_string(), weight: 1.0 });
+        node.kanji_tags.push(ronin_core::memory_bridge::kanji_ontology::KanjiTag { name: "完".to_string(), weight: 1.0 });
+        let _ = idx.write_node(node).await;
     }
 }
 
@@ -140,15 +134,76 @@ impl Actor for StealthWebActor {
                 }
 
                 let mut anti_pattern_content = String::new();
-                let anti_pattern_path = self.cwd.join(".ronin").join("anti_pattern.jcross");
-                if anti_pattern_path.exists() {
-                    anti_pattern_content = std::fs::read_to_string(&anti_pattern_path).unwrap_or_default();
-                }
-
                 let mut experience_content = String::new();
-                let experience_path = self.cwd.join(".ronin").join("experience.jcross");
-                if experience_path.exists() {
-                    experience_content = std::fs::read_to_string(&experience_path).unwrap_or_default();
+                
+                // Query nearest structural nodes from V3 Spatial Engine
+                let root_path = self.cwd.join(".ronin").join("experience.jcross");
+                let mut spatial_index = ronin_core::memory_bridge::spatial_index::SpatialIndex::new(root_path);
+                if let Ok(_) = spatial_index.hydrate().await {
+                    // Gather concept strings from objective (extremely naive extraction for Phase 3/4)
+                    let concept_query = objective.split_whitespace().take(5).collect::<Vec<_>>().join(" ");
+                    
+                    let nearest_nodes = spatial_index.query_nearest(&concept_query, 10);
+                    let nearest_nodes_clone = nearest_nodes.clone();
+                    for n in nearest_nodes {
+                        if n.kanji_tags.iter().any(|t| t.name == "反") {
+                            anti_pattern_content.push_str(&n.content);
+                            anti_pattern_content.push_str("\n\n");
+                        } else if n.kanji_tags.iter().any(|t| t.name == "確" || t.name == "完") {
+                            experience_content.push_str(&n.content);
+                            experience_content.push_str("\n\n");
+                        }
+                    }
+                    
+                    // Trigger spatial decay natively managed internally by queries so explicit call removed
+                    
+                    // --- REFLEX FRONT-LOBE INTERCEPTOR ---
+                    let mut reflex_bypassed = false;
+                    let mut reflex_output = String::new();
+                    let current_env_hash = format!("{}_{}", std::env::consts::OS, std::env::consts::ARCH);
+
+                    if self.role == SystemRole::ArchitectWorker {
+                        for n in nearest_nodes_clone {
+                            if n.reflex_action.is_some() {
+                                let mode = ronin_core::memory_bridge::reflex_executor::determine_execution_mode(&n, Some(&current_env_hash));
+                                if mode != ronin_core::memory_bridge::reflex_executor::ReflexExecutionMode::RequireExplicitApproval {
+                                    info!("[StealthGemini-{}] REFLEX TRIGGERED: Muscle memory detected. Bypassing LLM.", self.id);
+                                    match ronin_core::memory_bridge::reflex_executor::execute_reflex(&n, Some(&current_env_hash)).await {
+                                        Ok(res) if res.success => {
+                                            reflex_bypassed = true;
+                                            reflex_output = format!("🔄 [REFLEX AUTOMATIC EXECUTION]\n{}\n[TASK_COMPLETE]", res.logs);
+                                            break;
+                                        }
+                                        Ok(res) => {
+                                            info!("[StealthGemini-{}] Reflex fallback: {}", self.id, res.logs);
+                                        }
+                                        Err(e) => {
+                                            warn!("[StealthGemini-{}] Reflex parsing failed: {}. Falling back to LLM.", self.id, e);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if reflex_bypassed {
+                        let result = HiveMessage::SubAgentResult {
+                            id: self.id,
+                            output: reflex_output,
+                        };
+                        return Ok(Some(Envelope {
+                            message_id: Uuid::new_v4(),
+                            sender: match self.role {
+                                SystemRole::ArchitectWorker => "StealthGeminiWorker".to_string(),
+                                SystemRole::SeniorObserver => "SeniorGemini".to_string(),
+                                SystemRole::JuniorObserver => "JuniorGemini".to_string(),
+                            },
+                            recipient: env.sender,
+                            payload: serde_json::to_string(&result)?,
+                        }));
+                    }
+                    // --- END REFLEX INTERCEPTOR ---
+
                 }
 
                 let cfg = crate::config::VerantyxConfig::load(&self.cwd);
@@ -170,28 +225,47 @@ Personality: {persona_traits}
 
 【重要：システム構造の理解】
 このシステムは以下の厳格なパイプラインで動いています：
-1. あなた (Worker): 考え、指示(コマンド/編集)または最終回答を出力する。
-2. Qwen (ローカル実行担当): あなたが出力した指示（bash等）をPC上で実際に実行し、結果を返す。
-3. Senior/Junior (監視・記憶担当): 一連の挙動を監視・評価し、次のあなたのターンへ時系列記憶(JCross)としてコンテキストを補給する。
+1. あなた (Worker): ユーザーの代理人。設計構築と、各AIに対する指示・交渉を担当する。
+2. Qwen (システムルーティング担当): システム全体のルーティングとゲートウェイを管理する存在。
+3. gemma4:31b (シミュレータ内実動AI): 隔離空間(Web Sandbox)内で稼働する高性能モデル。忠実にコマンドやコーディングを行い、あなたと議論しながら構築を代行する。
+4. Senior/Junior (監視・記憶担当): 一連の挙動を監視・評価し、次のターンへ記憶(JCross)を補給する。
 
-あなた自身はPCを操作したりファイルを読み書きする権限が一切ありません。ファイル操作やコマンド実行は、プレフィックス「編集中」をつけて**100%全て外部のQwenに委譲**しなければなりません。
-このパイプラインは「あなたが指定されたプレフィックスを出力の【1行目の先頭】に正確に書くこと」だけでルーティングが成立しています。もしあなたが最初に「こんにちは！」などの挨拶を挟んだり、「最終回答」と出力しながらコマンドを書いたりすると、Rustの正規表現パーサーが誤作動を起こし、プロジェクト全体の進行が完全に死滅（クラッシュ）します。
+【🎨 サイト構築の特別ワークフロー (Web Sandbox)】
+ユーザーの「Webサイト構築」要請に対し、独自の判断で直ちにコーディングを実行したり、**ユーザーに対して自然言語でしつこく要件を質問（質疑応答）してはいけません。**会話のテンポを阻害する行為は厳禁です。必ず以下の「視覚的理解ループ」に従います：
+
+[Step 1: JCross空間設計言語のレンダリング指示]
+ユーザーが構築・または提示した「JCross空間的設計言語（立体的シミュレーションデータ）」を読み解き、まずは隔離空間内の `gemma4:31b` に対して「この設計データをWeb Sandbox上で視覚的なシミュレーションとしてレンダリングして見せろ」と指示（「編集中」プレフィックス）を出してください。
+
+[Step 2: 視覚キャプチャによる一撃理解]
+`gemma4:31b`がレンダリングを終えたら、直ちに `[BROWSER_PREVIEW]` コマンドを使ってそのシミュレーション画面をキャプチャしてください。あなたは**言葉で質問するのではなく、そのキャプチャ画像（視覚情報）を観察することで、ユーザーが求めている空間設計・配置・デザインの全貌を一瞬で深く理解**してください。
+
+[Step 3: gemma4:31bとの自律交渉ループ]
+視覚的に設計を理解した後、プロンプトのコンテキストに基づいて本番の構築に入ります。引き続き `[BROWSER_PREVIEW]` の結果を確認しながら、「ここはああでもないこうでもない」と `gemma4:31b` と議論と修正を繰り返し、ユーザーが見ていた初期の設計を完璧なWebサイトとして実体化させてください。
+
+【⏳ 重要：記憶の制約（5ターン・リフレッシュ）】
+隔離されたサンドボックス環境内では、あなたのコンテキスト（記憶）は「5ターンごとに完全にリフレッシュ（消去）」される制限があります。
+下界（外部システム）との唯一の繋がりは、Senior/Juniorが記録する「時系列の観察記憶（JCross）」のみです。あなたは毎ターンプロンプトに供給されるこのJCross記憶だけを頼りに過去の文脈を復元し、思考を途切れさせることなく交渉ループを持続させてください。
+
+【実行の絶対ルール】
+あなた自身は実環境を操作できません。操作指示を出す際は、必ず以下のプレフィックスを【1行目の先頭】に記述してください。少しでも挨拶などが混入すると正規表現パーサーが死滅します。
 
 【📝 ミッションと出力ルール（絶対厳守）】
 あなたは必ず、以下のいずれかのプレフィックス（接頭辞）を**出力の1行目・先頭**に配置してください。それ以外の会話や解説から始めることは【システム破壊行為】であり厳禁です。
 
 1. `編集中`
    - **実行が必要な場合（ファイル読込/書込/コピー/コマンド実行など、次のアクションが必要な時）は、いかなる理由があっても必ずこれを選択してください。**
-   - Qwenに実行させるためのコードやコマンドをこれに続けて書きます。
+   - `gemma4:31b` に実行させるためのコードやコマンドをこれに続けて書きます。
 2. `そのまま出力`
    - ファイルの編集が必要な場合において、特定の情報を**一切の書式や内容の欠落なく**そのまま出す必要がある場合に使用します。
 3. `最終回答`
-   - Qwenによる実行出力（分析結果や編集の完了報告コマンド結果）をすべて受け取った後、**本当にすべての作業が完了し**、ユーザーに見せるべき最終的な報告を出す場合のみに使います。作業の途中で出すとフローが強制終了します。
+   - `gemma4:31b` による実行出力（分析結果や編集の完了報告コマンド結果）をすべて受け取った後、**本当にすべての作業が完了し**、ユーザーに見せるべき最終的な報告を出す場合のみに使います。作業の途中で出すとフローが強制終了します。
 4. `最終回答仮`
-   - ユーザーの要求が単なる「知識系・抽象的な質問」であり、**Qwenを使ってファイルを一回も触ったりコマンドを実行したりする必要が100%ない場合**（完全な1ターン完結の質問）にのみ使用します。
+   - ユーザーの要求が単なる「知識系・抽象的な質問」であり、**`gemma4:31b`等を使ってファイルを一回も触ったりコマンドを実行したりする必要が100%ない場合**（完全な1ターン完結の質問）にのみ使用します。
+5. `[BROWSER_PREVIEW]` (全自動モード共通)
+   - `[BROWSER_PREVIEW] http://localhost:3000` のように出力の1行目に書くことで、独自のWebSandbox上に対象のWebアプリを立ち上げ、そのレンダリング結果（UIの見た目）のスクリーンショットをあなた自身の視覚コンテキストへ直接読み込ませることができます。UI実装の見た目の確認とコードとの照らし合わせループに使用してください。
 
 【重要】
-- 挨拶や余計な自己紹介はシステムを破壊するため不要ですが、**「このコマンドや編集を何のために行うのか」という【Qwenに対する日本語の目的・指示（コンテキスト）】**は、コマンドブロックの前に必ず自然言語で記述してください。これがないとQwenが文脈を見失い失敗します。
+- 挨拶や余計な自己紹介はシステムを破壊するため不要ですが、**「このコマンドや編集を何のために行うのか」という【gemma4:31bに対する日本語の目的・指示（コンテキスト）】**は、コマンドブロックの前に必ず自然言語で記述してください。これがないと実行側が文脈を見失い失敗します。
 - 念を押しますが、必ず上記いずれかのプレフィックスを【出力の一番最初】に記載してください。
 
 ユーザーの要求: {}
@@ -207,29 +281,48 @@ Your thought process, verbiage, and analytical results are strictly governed by 
 You are the central "Brain" (Worker) of the robust Verantyx Multi-AI System.
 
 [CRITICAL: Ecosystem Context & Architecture]
-The system operates on an interconnected, fragile pipeline:
-1. You (Worker): Think and output instructions (commands/edits) or final answers.
-2. Qwen (Local Executor): ACTUALLY executes your bash commands/file patches on the PC and returns the stdout results back to you.
-3. Senior/Junior (Observers): Monitor execution and inject contextual memory (JCross) into your next prompt.
+The system operates on an interconnected pipeline:
+1. You (Worker): The User's Proxy and Lead Architect. You plan, design, and negotiate with internal AIs.
+2. Qwen (System Router): Manages overall system routing and gateways.
+3. gemma4:31b (Simulator Inner Executor): A high-fidelity model operating inside the isolated Web Sandbox. It faithfully executes your commands and builds the site through discussion with you.
+4. Senior/Junior (Observers): Monitor activities and inject contextual memory (JCross).
 
-You have ZERO ability to directly interact with the PC or read files yourself. You MUST delegate all file/command actions to Qwen by using the `[EDITING]` prefix.
-This pipeline completely depends on you writing the EXACT prefix on the **very first line** of your output. If you inject conversational fluff (e.g., "Hello," "I understand") before the prefix, or output `[FINAL_ANSWER]` while also providing commands, the Rust regex parser will crash, and the entire project workflow will instantly fail.
+[🎨 Web Sandbox Autonomous Workflow (Visual Simulation)]
+If the user requests to build a website, DO NOT immediately jump into coding, and **DO NOT barrage the user with tedious natural language questions.** Ruining the conversation tempo with Q&A is strictly forbidden. You MUST follow this visual comprehension loop:
+
+[Step 1: JCross Spatial Design Rendering Instruction]
+Decode the "JCross Spatial Design Language" (3D/spatial simulation data) provided by the user. Instruct `gemma4:31b` inside the sandbox to render this spatial design as a visual simulation in the Web Sandbox.
+
+[Step 2: Instant Visual Comprehension]
+Once `gemma4:31b` completes the rendering, immediately use the `[BROWSER_PREVIEW]` command to capture the simulation screen. Instead of asking questions, visually observe this captured image to instantly and deeply understand the full scope of the requested spatial design, layout, and UI.
+
+[Step 3: Negotiation Loop with gemma4:31b]
+After visually comprehending the design intent, begin the actual construction based on your context. Continue using the `[BROWSER_PREVIEW]` to monitor progress. Discuss, iterate, and negotiate heavily with `gemma4:31b` to materialize the spatial simulation into the perfect, final website.
+
+[⏳ CRITICAL: Memory Constraint & 5-Turn Refresh]
+Inside the isolated Sandbox, your context (memory) is completely refreshed/wiped every 5 turns.
+Your ONLY lifeline to the outside world is the time-series observation memory (JCross) recorded by the Senior/Junior Observers. You MUST rely purely on this injected JCross memory to recover previous context and maintain a continuous, uninterrupted negotiation/build process across your memory wipes.
+
+[ABSOLUTE MANDATORY PREFIX RULES]
+You have ZERO direct access. To instruct the internal pipeline, you MUST place the exact prefix on the **very first line** of your output. Conversational fluff before a prefix will instantly crash the Rust regex parser and destroy the workflow.
 
 [📝 Mission & Output Rules (STRICT)]
 You MUST place exactly ONE of the following prefixes at the **very first line** of your output. Conversational filler at the start is a system-destroying offense.
 
 1. `[EDITING]`
    - **Whenever file reading/writing/copying, command execution, or further investigation is required, you MUST choose this.**
-   - Write instructions, then the bash commands/patches for Qwen directly after this.
+   - Write instructions, then the bash commands/patches for `gemma4:31b` directly after this.
 2. `[RAW_OUTPUT]`
    - Use this when you need to output specific code VERBATIM without any truncation/formatting omissions.
 3. `[FINAL_ANSWER]`
-   - Use this to present the final report to the user ONLY AFTER ALL tasks are fully complete and Qwen's execution results have been confirmed. Using this prematurely kills the workflow.
+   - Use this to present the final report to the user ONLY AFTER ALL tasks are fully complete and `gemma4:31b`'s execution results have been confirmed. Using this prematurely kills the workflow.
 4. `[TEMP_FINAL]`
-   - Use this ONLY if the user's request is a purely conceptual/abstract question and there is **100% no need to EVER touch files or execute commands using Qwen**.
+   - Use this ONLY if the user's request is a purely conceptual/abstract question and there is **100% no need to EVER touch files or execute commands using gemma4:31b**.
+5. `[BROWSER_PREVIEW]` (All Auto Modes)
+   - Output `[BROWSER_PREVIEW] http://localhost:3000` on the very first line to spawn an isolated WebSandbox. The system will render the target Web App, capture a screenshot of its UI, and inject the visual layout directly into your context. Use this to visually verify your code changes.
 
 [IMPORTANT]
-- Do not greet the user. However, you MUST write natural language context specifically aimed at Qwen before your raw commands, explaining "why you are running this command/edit". Too little context causes Qwen to fail.
+- Do not greet the user. However, you MUST write natural language context specifically aimed at `gemma4:31b` before your raw commands, explaining "why you are running this command/edit". Too little context causes the executor to fail.
 - Place the exact prefix at the very beginning of the first line.
 
 User Request: {}
@@ -434,7 +527,7 @@ Personality: {persona_traits}
                             let _ = crate::roles::symbiotic_macos::SymbioticMacOS::focus_safari_panel(pos_str).await;
                             tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
                             
-                            if auto_mode == crate::config::AutomationMode::AutoStealth {
+                            if auto_mode == crate::config::AutomationMode::AutoStealth || auto_mode == crate::config::AutomationMode::AutoPremium {
                                 println!("{}", console::style("📝 (自動モードのため、自動ペースト＆送信を実行します...)").cyan());
                                 if let Err(e) = crate::roles::symbiotic_macos::SymbioticMacOS::auto_visual_calibrated_paste_and_send(&payload_str).await {
                                     println!("{} ❌ [FATAL] Auto Logic Failed: {:?}", console::style("[AUTO]").red(), e);
@@ -445,11 +538,16 @@ Personality: {persona_traits}
                             println!("\n{}", console::style(wait_msg).cyan());
                             
                             // Step 3: Wait for LLM and signal extraction
-                            if auto_mode == crate::config::AutomationMode::AutoStealth {
+                            if auto_mode == crate::config::AutomationMode::AutoStealth || auto_mode == crate::config::AutomationMode::AutoPremium {
+                                let base_wait = 20; // ユーザーの希望により最低20秒待つか文字数に応じる
+                                let char_count = payload_str.chars().count() as u64;
+                                let dynamic_wait = char_count / 100; // 100文字につき1秒追加追加
+                                let wait_time = std::cmp::min(base_wait + dynamic_wait, 60); // 最大60秒
+                                
                                 let prompt_str = if self.is_japanese_mode { "✔ 準備ができたらEnterを押してください (Press Enter to start) › Extraction Start" } else { "✔ 準備ができたらEnterを押してください (Press Enter to start) › Extraction Start" };
                                 println!("{}", prompt_str);
-                                println!("{}", console::style(if self.is_japanese_mode { "    ╰─> (システムが自動でエンターを押して開始します... 12秒待機中)" } else { "    ╰─> (System is automatically pressing Enter... waiting 12s)" }).cyan());
-                                tokio::time::sleep(tokio::time::Duration::from_secs(12)).await;
+                                println!("{}", console::style(if self.is_japanese_mode { format!("    ╰─> (システムが自動でエンターを押して抽出します... コンテキスト量に応じて動的待機中: {}秒)", wait_time) } else { format!("    ╰─> (System is automatically pressing Enter... Dynamic wait time: {}s)", wait_time) }).cyan());
+                                tokio::time::sleep(tokio::time::Duration::from_secs(wait_time)).await;
                             } else {
                                 let _ = dialoguer::Select::new().with_prompt("✔ 準備ができたらEnterを押してください (Press Enter to start)")
                                     .default(0).items(&[" Extraction Start"]).interact().unwrap();
@@ -545,19 +643,19 @@ Personality: {persona_traits}
                                     if !o.status.success() {
                                         let reason = stderr.lines().next().unwrap_or("異常終了");
                                         let jcross_entry = format!("❌ [実行エラー] パターン: REQUEST_EXEC: `{}` -> 理由: {}", cmd, reason);
-                                        Self::append_anti_pattern(&self.cwd, &jcross_entry);
+                                        Self::append_anti_pattern_v4(&self.cwd, &jcross_entry, "execution_failure").await;
                                     }
                                     feedback.push_str(&format!("[SYS: Exec {}]\nSTDOUT:\n{}\nSTDERR:\n{}\n\n", cmd, stdout, stderr));
                                 }
                                 Err(e) => {
                                     let jcross_entry = format!("❌ [実行エラー] パターン: REQUEST_EXEC: `{}` -> 理由: {}", cmd, e);
-                                    Self::append_anti_pattern(&self.cwd, &jcross_entry);
+                                    Self::append_anti_pattern_v4(&self.cwd, &jcross_entry, "execution_failure").await;
                                     feedback.push_str(&format!("[SYS: Exec Failed]: {}\n\n", e));
                                 }
                             }
                         } else {
                             let jcross_entry = format!("❌ [実行拒否] パターン: REQUEST_EXEC: `{}` -> 理由: 人間による自発的な拒否", cmd);
-                            Self::append_anti_pattern(&self.cwd, &jcross_entry);
+                            Self::append_anti_pattern_v4(&self.cwd, &jcross_entry, "human_rejection").await;
                             feedback.push_str(&format!("[SYS: DENIED] Command '{}' was aborted by Human Operator.\n\n", cmd));
                         }
                     }
@@ -571,7 +669,7 @@ Personality: {persona_traits}
                         
                         if !is_safe_path(path, &self.cwd, self.global_access) {
                             let jcross_entry = format!("❌ [アクセス拒否] パターン: REQUEST_FILE_EDIT: `{}` -> 理由: Sandboxのセキュリティポリシー（プロジェクト外）", path);
-                            Self::append_anti_pattern(&self.cwd, &jcross_entry);
+                            Self::append_anti_pattern_v4(&self.cwd, &jcross_entry, "security_violation").await;
                             feedback.push_str(&format!("[SYS: DENIED] Sandbox Error: You are not permitted to edit {} in Project-Only mode.\n\n", path));
                             continue;
                         }
@@ -623,14 +721,49 @@ Personality: {persona_traits}
                                 }
                                 Err(e) => {
                                     let jcross_entry = format!("❌ [編集エラー] パターン: REQUEST_FILE_EDIT: `{}` -> 理由: {}", path, e);
-                                    Self::append_anti_pattern(&self.cwd, &jcross_entry);
+                                    Self::append_anti_pattern_v4(&self.cwd, &jcross_entry, "file_io_error").await;
                                     feedback.push_str(&format!("[SYS: Patch Failed {}]\nREASON: Could not read file. {}\n\n", path, e));
                                 }
                             }
                         } else {
                             let jcross_entry = format!("❌ [編集拒否] パターン: REQUEST_FILE_EDIT: `{}` -> 理由: 人間による自発的な拒否", path);
-                            Self::append_anti_pattern(&self.cwd, &jcross_entry);
+                            Self::append_anti_pattern_v4(&self.cwd, &jcross_entry, "human_rejection").await;
                             feedback.push_str(&format!("[SYS: DENIED] File Edit on '{}' was aborted by Human Operator.\n\n", path));
+                        }
+                    }
+
+                    // [BROWSER_PREVIEW] (For AutoPremium Sandboxed extraction)
+                    let preview_re = regex::Regex::new(r"\[BROWSER_PREVIEW\]\s*(http[^\s]+)").unwrap();
+                    for cap in preview_re.captures_iter(&last_response_rendered) {
+                        tools_used = true;
+                        let url = &cap[1];
+                        
+                        println!("\n{} [SYS_AUTH] Target requested visual Sandbox preview: {}", console::style("👀").cyan(), url);
+                        
+                        match crate::roles::symbiotic_macos::SymbioticMacOS::capture_safari_viewport_to_clipboard(url).await {
+                            Ok(_) => {
+                                let pos_str = match self.tab_index {
+                                    1 => "left",
+                                    2 => "middle",
+                                    3 => "right",
+                                    _ => "left",
+                                };
+                                let _ = crate::roles::symbiotic_macos::SymbioticMacOS::focus_safari_panel(pos_str).await;
+                                tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+                                
+                                let paste_script = r#"
+                                tell application "System Events"
+                                    keystroke "v" using command down
+                                end tell
+                                "#;
+                                let _ = tokio::process::Command::new("osascript").arg("-e").arg(paste_script).output().await;
+                                tokio::time::sleep(tokio::time::Duration::from_millis(2000)).await; // Wait for Gemini to ingest the image payload
+                                
+                                feedback.push_str(&format!("[SYS: Web App UI at {} has been successfully captured and uploaded to your vision context as an image attachment in the current chat. Please analyze the UI visuals and correlate with your code structure.]\n\n", url));
+                            }
+                            Err(e) => {
+                                feedback.push_str(&format!("[SYS: Failed to capture Preview of {}]: {}\n\n", url, e));
+                            }
                         }
                     }
 
@@ -645,7 +778,8 @@ Personality: {persona_traits}
                             if self.role == SystemRole::SeniorObserver {
                                 final_output = format!("{}\n\n[TASK_COMPLETE]", last_response_rendered);
                                 let jcross_entry = format!("✅ [成功体験]:\n{}\n", last_response_rendered);
-                                Self::append_experience(&self.cwd, &jcross_entry);
+                                // The observer captures success into Deep V3 space
+                                Self::append_experience_v4(&self.cwd, &jcross_entry, "completed_task").await;
                             } else {
                                 final_output = last_response_rendered;
                             }

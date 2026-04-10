@@ -66,7 +66,7 @@ openclaw onboard --non-interactive \
 ```bash
 ollama pull glm-4.7-flash
 # 或
-ollama pull gpt-oss:20b
+ollama pull gemma4:31b
 # 或
 ollama pull llama3.3
 ```
@@ -178,7 +178,7 @@ export OLLAMA_API_KEY="ollama-local"
         api: "ollama",
         models: [
           {
-            id: "gpt-oss:20b",
+            id: "gemma4:31b",
             name: "GPT-OSS 20B",
             reasoning: false,
             input: ["text"],
@@ -226,7 +226,7 @@ export OLLAMA_API_KEY="ollama-local"
   agents: {
     defaults: {
       model: {
-        primary: "ollama/gpt-oss:20b",
+        primary: "ollama/gemma4:31b",
         fallbacks: ["ollama/llama3.3", "ollama/qwen2.5-coder:32b"],
       },
     },
@@ -336,7 +336,7 @@ curl http://localhost:11434/api/tags
 ```bash
 ollama list  # 查看已安装的模型
 ollama pull glm-4.7-flash
-ollama pull gpt-oss:20b
+ollama pull gemma4:31b
 ollama pull llama3.3     # 或其他模型
 ```
 

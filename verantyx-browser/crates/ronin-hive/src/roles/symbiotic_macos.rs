@@ -205,6 +205,58 @@ impl SymbioticMacOS {
         Ok(String::from_utf8_lossy(&out.stdout).into_owned())
     }
 
+    /// Zero-DOM Autonomous UI Sandbox: 
+    /// Opens Safari in the background, loads a local server URL, bounds it, 
+    /// takes a seamless hardware-accelerated Window screenshot to clipboard, and closes it.
+    pub async fn capture_safari_viewport_to_clipboard(url: &str) -> anyhow::Result<()> {
+        info!("[OS_BRIDGE] Spawning isolated Safari context for {}", url);
+        
+        let spawn_js = format!(
+            r#"
+            var safari = Application("Safari");
+            var doc = safari.Document().make();
+            doc.url = "{}";
+            safari.windows[0].bounds = {{"x": 100, "y": 100, "width": 1280, "height": 800}};
+            safari.windows[0].id();
+            "#, 
+            url
+        );
+        let spawn_path = std::env::temp_dir().join("sim_spawn.js");
+        std::fs::write(&spawn_path, spawn_js)?;
+
+        // Boot Safari Isolated Tab and Read Window ID
+        let out = Command::new("osascript").arg("-l").arg("JavaScript").arg(spawn_path.to_str().unwrap()).output().await?;
+        let win_id = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        
+        // Ensure web app renders (React/Vue takes ~2-3 seconds usually locally)
+        info!("[OS_BRIDGE] Engine rendering WebView...");
+        tokio::time::sleep(tokio::time::Duration::from_millis(3500)).await;
+
+        if !win_id.is_empty() {
+            info!("[OS_BRIDGE] Capturing hardware window ID {} to clipboard", win_id);
+            // -c: Send to clipboard, -x: Disable sound, -l: Capture specific window ID
+            let _ = Command::new("screencapture")
+                .arg("-c")
+                .arg("-x")
+                .arg("-l")
+                .arg(&win_id)
+                .output()
+                .await?;
+        }
+
+        let cleanup_js = r#"
+            var safari = Application("Safari");
+            if (safari.windows.length > 0) {
+                safari.windows[0].close();
+            }
+        "#;
+        let cleanup_path = std::env::temp_dir().join("sim_cleanup.js");
+        std::fs::write(&cleanup_path, cleanup_js)?;
+        let _ = Command::new("osascript").arg("-l").arg("JavaScript").arg(cleanup_path.to_str().unwrap()).output().await?;
+
+        Ok(())
+    }
+
     /// Gets the name of the currently active macOS application.
     pub async fn get_active_app() -> Option<String> {
         let script = r#"tell application "System Events" to get name of first application process whose frontmost is true"#;

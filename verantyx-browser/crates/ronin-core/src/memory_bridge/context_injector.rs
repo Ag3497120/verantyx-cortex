@@ -68,7 +68,7 @@ impl<'a> ContextInjector<'a> {
 
         // Phase 2: Domain-keyword semantic filter (simple contains-match for now)
         if let Some(ref hint) = self.cfg.domain_hint {
-            selected.retain(|n| n.content.contains(hint.as_str()) || n.tags.contains(hint));
+            selected.retain(|n| n.content.contains(hint.as_str()) || n.kanji_tags.iter().any(|t| &t.name == hint));
         }
 
         if selected.is_empty() {

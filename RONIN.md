@@ -9,5 +9,5 @@ This file is automatically injected into the Ronin agent's Front memory zone on 
 ## Key Conventions
 
 - Language: 日本語
-- Primary Model: gpt-oss:20b
+- Primary Model: gemma4:31b
 - Working Directory: /Users/motonishikoudai/verantyx-cli

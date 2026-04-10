@@ -9,6 +9,8 @@ use clap::Parser;
 
 mod bridge;
 mod stealth_bridge;
+mod simulator_ui;
+mod simulator_bridge;
 mod tui;
 
 #[derive(Parser)]
@@ -24,6 +26,10 @@ struct Cli {
     /// Makes the webview window visible (useful for bypass/visual fallback)
     #[arg(short, long)]
     visible: bool,
+
+    /// Run JCross World Simulator Canvas
+    #[arg(long)]
+    simulator: bool,
 
     /// Set user agent string
     #[arg(short, long)]
@@ -41,6 +47,12 @@ fn main() -> Result<()> {
         // --- STEALTH WRY WKWEBVIEW BRIDGE ---
         // Invisible OS-native WebKit rendering avoiding Google's Botguard
         stealth_bridge::run_event_loop(cli.visible)?;
+        return Ok(());
+    }
+
+    if cli.simulator {
+        // --- JCROSS CONCEPT TELEPATHY SIMULATOR ---
+        simulator_bridge::run_event_loop()?;
         return Ok(());
     }
 

@@ -59,7 +59,7 @@ openclaw onboard --non-interactive \
 ```bash
 ollama pull glm-4.7-flash
 # or
-ollama pull gpt-oss:20b
+ollama pull gemma4:31b
 # or
 ollama pull llama3.3
 ```
@@ -171,7 +171,7 @@ Use explicit config when:
         api: "ollama",
         models: [
           {
-            id: "gpt-oss:20b",
+            id: "gemma4:31b",
             name: "GPT-OSS 20B",
             reasoning: false,
             input: ["text"],
@@ -219,7 +219,7 @@ Once configured, all your Ollama models are available:
   agents: {
     defaults: {
       model: {
-        primary: "ollama/gpt-oss:20b",
+        primary: "ollama/gemma4:31b",
         fallbacks: ["ollama/llama3.3", "ollama/qwen2.5-coder:32b"],
       },
     },
@@ -329,7 +329,7 @@ To add models:
 ```bash
 ollama list  # See what's installed
 ollama pull glm-4.7-flash
-ollama pull gpt-oss:20b
+ollama pull gemma4:31b
 ollama pull llama3.3     # Or another model
 ```
 

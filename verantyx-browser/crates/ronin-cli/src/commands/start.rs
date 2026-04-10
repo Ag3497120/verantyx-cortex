@@ -104,6 +104,15 @@ pub async fn execute(args: StartArgs) -> Result<()> {
             continue;
         }
 
+        if matches!(task.as_str(), "/jcross" | "/edit") {
+            if let Err(e) = crate::commands::memory::execute(crate::commands::memory::MemoryArgs {
+                subcommand: crate::commands::memory::MemorySubcommand::Edit
+            }).await {
+                eprintln!("{} Failed to launch JCross editor: {}", style("⚠️").yellow(), e);
+            }
+            continue;
+        }
+
         // Run the task
         let result = runner.run(RunnerConfig {
             task: task.clone(),

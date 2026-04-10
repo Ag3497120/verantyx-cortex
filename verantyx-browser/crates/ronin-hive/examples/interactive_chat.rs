@@ -51,6 +51,9 @@ async fn main() -> anyhow::Result<()> {
 
     // 2. Dual-Window Visualization Orchestration (AppleScript)
     let split_screen_js = r#"
+    do shell script "open -a Safari"
+    delay 1.5
+    
     tell application "Finder"
         set bnd to bounds of window of desktop
         set screenWidth to item 3 of bnd

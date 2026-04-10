@@ -14,8 +14,9 @@ pub struct SchedulerConfig {
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub enum AutomationMode {
-    AutoStealth,
-    Manual,
+    AutoStealth,    // Free Gemini: full auto keyboard
+    AutoPremium,    // Premium Gemini: Web Sandbox loop with image pasting
+    Manual,         // Human-in-the-loop manual mode
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -130,8 +131,17 @@ impl VerantyxConfig {
         println!("\n{}", console::style(auto_title).cyan());
         println!("{}", auto_desc);
         
-        let auto_opts = if lang_idx == 0 { &["手動モード (安全/確認あり)", "完全自動モード (AutoStealth)"] } else { &["Manual (Safe)", "AutoStealth"] };
-        let default_auto_idx = if existing.automation_mode == AutomationMode::AutoStealth { 1 } else { 0 };
+        let auto_opts = if lang_idx == 0 { 
+            &["手動モード (安全/確認あり)", "完全自動モード (無料版: AutoStealth)", "完全自動モード (ログイン版: WebSandboxループ)"]
+        } else { 
+            &["Manual (Safe)", "AutoStealth (Free)", "AutoPremium (Logged-in Sandbox)"] 
+        };
+        let default_auto_idx = match existing.automation_mode {
+            AutomationMode::AutoPremium => 2,
+            AutomationMode::AutoStealth => 1,
+            AutomationMode::Manual => 0,
+        };
+        
         let auto_idx = dialoguer::Select::with_theme(&dialoguer::theme::ColorfulTheme::default())
             .with_prompt(if lang_idx == 0 { "システム制御モードを選択" } else { "Select System Control Mode" })
             .items(auto_opts)
@@ -139,7 +149,11 @@ impl VerantyxConfig {
             .interact()
             .unwrap();
             
-        let automation_mode = if auto_idx == 0 { AutomationMode::Manual } else { AutomationMode::AutoStealth };
+        let automation_mode = match auto_idx {
+            2 => AutomationMode::AutoPremium,
+            1 => AutomationMode::AutoStealth,
+            _ => AutomationMode::Manual,
+        };
 
         let privacy_title = if lang_idx == 0 { "--- [ 🔒 Privacy & Community Model Export ] ---" } else { "--- [ 🔒 Privacy & Community Model Export ] ---" };
         let privacy_desc = if lang_idx == 0 { "ハルシネーション制御を含む成功した推論プロセス（JCross）をローカルからコミュニティに投稿しますか？（※ローカルパスや各種キーは常に自動サニタイズされて送信されます）" } else { "Do you consent to automatically export successful JCross inference memories to the community dataset? (Local paths and keys are automatically sanitized)" };

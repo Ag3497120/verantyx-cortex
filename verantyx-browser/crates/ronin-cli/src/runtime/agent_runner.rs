@@ -229,6 +229,55 @@ If no mapping is needed, set needs_mapping to false.
 
         // 5. Initialize Multi-Agent Hive Network
         info!("[Runner] Booting Ronin Multi-Agent Hive System...");
+        
+        let hive_config = ronin_hive::config::VerantyxConfig::load(&runner_cfg.cwd);
+        if hive_config.automation_mode == ronin_hive::config::AutomationMode::AutoStealth 
+            || hive_config.automation_mode == ronin_hive::config::AutomationMode::AutoPremium 
+            || runner_cfg.force_stealth
+            || std::env::var("RONIN_VIZ_BROWSER").is_ok()
+        {
+            println!("{} Orchestrating Dual-Browser Spawning for Gemini Agents...", style("[SYSTEM]").cyan().bold());
+            let split_screen_js = r#"
+            do shell script "open -a Safari"
+            delay 1.5
+            
+            tell application "Finder"
+                set bnd to bounds of window of desktop
+                set screenWidth to item 3 of bnd
+                set screenHeight to item 4 of bnd
+            end tell
+            
+            set winHeight to (screenHeight * 0.85) as integer
+            set topMargin to 50
+            set winWidth to (screenWidth * 0.65) as integer
+            
+            tell application "Safari"
+                activate
+                delay 0.5
+                
+                make new document with properties {URL:"https://gemini.google.com/app"}
+                set _w1 to front window
+                set bounds of _w1 to {10, topMargin, 10 + winWidth, topMargin + winHeight}
+                
+                make new document with properties {URL:"https://gemini.google.com/app"}
+                set _w2 to front window
+                set bounds of _w2 to {100, topMargin, 100 + winWidth, topMargin + winHeight}
+                
+                make new document with properties {URL:"https://gemini.google.com/app"}
+                set _w3 to front window
+                set bounds of _w3 to {200, topMargin, 200 + winWidth, topMargin + winHeight}
+            end tell
+            "#;
+            let _ = tokio::process::Command::new("osascript")
+                .arg("-e")
+                .arg(split_screen_js)
+                .output()
+                .await;
+            
+            // Give Safari a moment to render the newly created windows
+            tokio::time::sleep(tokio::time::Duration::from_millis(2000)).await;
+        }
+
         let spinner = Self::make_spinner("[SYSTEM] Synchronizing Autonomous Hive Network...");
         
         let mut commander_actor = ronin_hive::roles::commander::CommanderActor;
@@ -296,6 +345,29 @@ If no mapping is needed, set needs_mapping to false.
         let mut step_count = 0;
         let mut current_objective = final_objective;
         let mut next_tab_index = 3; // Junior will spawn on tab 3
+
+        // Spawning JCross Concept Simulator Canvas
+        let current_exe = std::env::current_exe().unwrap_or_else(|_| std::path::PathBuf::from("cargo"));
+        
+        let mut sim_process = if current_exe.file_name().and_then(|n| n.to_str()) == Some("cargo") {
+            std::process::Command::new("cargo")
+                .arg("run")
+                .arg("-p")
+                .arg("vx-browser")
+                .arg("--")
+                .arg("--simulator")
+                .stdin(std::process::Stdio::piped())
+                .spawn()
+                .ok()
+        } else {
+            std::process::Command::new(&current_exe)
+                .arg("--simulator")
+                .stdin(std::process::Stdio::piped())
+                .spawn()
+                .ok()
+        };
+            
+        let mut sim_stdin = sim_process.as_mut().and_then(|p| p.stdin.take());
 
         loop {
             step_count += 1;
@@ -390,6 +462,58 @@ If no mapping is needed, set needs_mapping to false.
                 
                 // Assign new unified reality as the objective context for next worker turn
                 current_objective = format!("Local System Unified Context:\n{}", merged);
+            }
+
+            // Sync structural nodes to AGI Visual Simulator Canvas
+            if let Some(stdin) = &mut sim_stdin {
+                let mut nodes = Vec::new();
+                let mut links = Vec::new();
+                
+                // Construct basic JCross graph anchors
+                nodes.push(serde_json::json!({"id": "Worker", "label": "Architect Worker", "axis": "FRONT"}));
+                nodes.push(serde_json::json!({"id": "Senior", "label": "Senior Validator", "axis": "NEAR"}));
+                nodes.push(serde_json::json!({"id": "Junior", "label": "Junior Apprentice", "axis": "NEAR"}));
+                
+                // Read .ronin/memory/*.jcross and map them to JSON structural graph
+                let cwd = runner_cfg.cwd.clone();
+                let intents_path = cwd.join(".ronin/intent.jcross");
+                if let Ok(content) = std::fs::read_to_string(&intents_path) {
+                    for (i, part) in content.split("@JCross.Intent").enumerate() {
+                        if part.trim().is_empty() { continue; }
+                        let node_id = format!("intent_{}_{}", step_count, i);
+                        let clean = part.chars().take(20).collect::<String>().replace("\n", " ");
+                        nodes.push(serde_json::json!({"id": node_id, "label": clean, "axis": "MID"}));
+                        links.push(serde_json::json!({"source": "Worker", "target": node_id}));
+                    }
+                }
+
+                let experience_path = cwd.join(".ronin/experience.jcross");
+                if let Ok(content) = std::fs::read_to_string(&experience_path) {
+                    for (i, part) in content.split("✅ [成功体験]:").enumerate() {
+                        if part.trim().is_empty() { continue; }
+                        let node_id = format!("exp_{}_{}", step_count, i);
+                        nodes.push(serde_json::json!({"id": node_id, "label": "Success Strategy", "axis": "DEEP"}));
+                        links.push(serde_json::json!({"source": "Senior", "target": node_id}));
+                    }
+                }
+                
+                let stealth_path = cwd.join(".ronin/stealth.jcross");
+                if let Ok(content) = std::fs::read_to_string(&stealth_path) {
+                    for (i, part) in content.split("❌").enumerate() {
+                        if part.trim().is_empty() { continue; }
+                        let node_id = format!("err_{}_{}", step_count, i);
+                        nodes.push(serde_json::json!({"id": node_id, "label": "Anti-Pattern", "axis": "FRONT"}));
+                        links.push(serde_json::json!({"source": "Junior", "target": node_id}));
+                    }
+                }
+                
+                let payload = serde_json::json!({
+                    "nodes": nodes,
+                    "links": links
+                });
+                
+                let _ = std::io::Write::write_all(stdin, format!("{}\n", payload.to_string()).as_bytes());
+                let _ = std::io::Write::flush(stdin);
             }
         }
         
