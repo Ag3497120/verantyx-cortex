@@ -1,5 +1,4 @@
 use std::io::Write;
-use std::path::PathBuf;
 
 pub fn generate_3d_html(json_data: &serde_json::Value) {
     let html_path = std::env::current_dir().unwrap().join(".ronin").join("crucible_3d.html");

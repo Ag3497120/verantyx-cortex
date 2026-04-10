@@ -1,4 +1,4 @@
-use ronin_core::memory_bridge::spatial_index::{MemoryNode, SpatialIndex};
+use ronin_core::memory_bridge::spatial_index::SpatialIndex;
 use serde_json::json;
 use std::path::Path;
 use tracing::{info, warn};
@@ -137,10 +137,10 @@ impl VeraMemoryVisualizer {
             max-width: 250px;
         }}
         .tt-title {{ font-weight: bold; color: #4fc3f7; margin-bottom: 4px; font-size: 14px; word-wrap: break-word; }}
-        .tt-tags { color: #ffd54f; font-size: 11px; margin-bottom: 4px; }
-        .tt-desc { color: #cfd8dc; line-height: 1.4; }
+        .tt-tags {{ color: #ffd54f; font-size: 11px; margin-bottom: 4px; }}
+        .tt-desc {{ color: #cfd8dc; line-height: 1.4; }}
         
-        #synth-btn {
+        #synth-btn {{
             position: absolute;
             bottom: 30px;
             left: 50%;
@@ -157,13 +157,13 @@ impl VeraMemoryVisualizer {
             display: none;
             z-index: 200;
             transition: all 0.2s;
-        }
-        #synth-btn:hover {
+        }}
+        #synth-btn:hover {{
             box-shadow: 0 6px 20px rgba(255, 213, 79, 0.6);
             transform: translateX(-50%) scale(1.05);
-        }
+        }}
 
-        #finder-panel {
+        #finder-panel {{
             position: absolute;
             top: 0;
             right: -600px;
@@ -177,38 +177,38 @@ impl VeraMemoryVisualizer {
             display: flex;
             flex-direction: column;
             backdrop-filter: blur(10px);
-        }
-        #finder-panel.open {
+        }}
+        #finder-panel.open {{
             right: 0;
-        }
-        #finder-header {
+        }}
+        #finder-header {{
             padding: 20px;
             border-bottom: 1px solid rgba(255, 255, 255, 0.1);
             display: flex;
             justify-content: space-between;
             align-items: flex-start;
-        }
-        #finder-title {
+        }}
+        #finder-title {{
             color: #4fc3f7;
             font-weight: bold;
             font-size: 1.2rem;
             word-wrap: break-word;
             flex: 1;
-        }
-        #finder-close {
+        }}
+        #finder-close {{
             background: none;
             border: none;
             color: #ff5252;
             font-size: 1.5rem;
             cursor: pointer;
             padding: 0 10px;
-        }
-        #finder-meta {
+        }}
+        #finder-meta {{
             padding: 10px 20px;
             background: rgba(0,0,0,0.3);
             border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-        }
-        #finder-content {
+        }}
+        #finder-content {{
             flex: 1;
             padding: 20px;
             overflow-y: auto;
@@ -217,7 +217,7 @@ impl VeraMemoryVisualizer {
             font-size: 0.9rem;
             white-space: pre-wrap;
             word-wrap: break-word;
-        }
+        }}
     </style>
 </head>
 <body>
