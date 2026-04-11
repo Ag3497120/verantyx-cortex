@@ -700,6 +700,28 @@ Personality: {persona_traits}
                     for cap in exec_re.captures_iter(&last_response_rendered) {
                         tools_used = true;
                         let cmd = &cap[1];
+
+                        // --- SANDBOX POLICY ENFORCEMENT ---
+                        let policy_engine = ronin_sandbox::isolation::policy::PolicyEngine::new(
+                            ronin_sandbox::isolation::policy::SandboxPolicy::default()
+                        );
+                        
+                        match policy_engine.evaluate(cmd) {
+                            ronin_sandbox::isolation::policy::PolicyDecision::Deny(reason) => {
+                                println!("\n{} [SANDBOX_BLOCK] Command denied by PolicyEngine: {}\nCommand: {}", console::style("🛑").red(), reason, console::style(cmd).red());
+                                let jcross_entry = format!("❌ [セキュリティブロック] パターン: REQUEST_EXEC: `{}` -> 理由: {}", cmd, reason);
+                                Self::append_anti_pattern_v4(&self.cwd, &jcross_entry, "security_violation").await;
+                                feedback.push_str(&format!("[SYS: SANDBOX DENIED] Command '{}' was aborted due to security policy: {}.\n\n", cmd, reason));
+                                continue; // Skip physical execution request entirely
+                            }
+                            ronin_sandbox::isolation::policy::PolicyDecision::Warn(warning) => {
+                                println!("\n{} [SANDBOX_WARNING] {}\nCommand: {}", console::style("⚠️").yellow(), warning, console::style(cmd).yellow());
+                            }
+                            ronin_sandbox::isolation::policy::PolicyDecision::Allow => {
+                                println!("\n{} [SANDBOX_OK] Command passed security checks: {}", console::style("✅").green(), console::style(cmd).cyan());
+                            }
+                        }
+
                         println!("\n{} [SYS_AUTH] Target requests execution permission for: \n{}", console::style("⚡").yellow(), console::style(cmd).bold());
                         print!("{} ", console::style("Allow execution? [y/N]:").cyan());
                         std::io::Write::flush(&mut std::io::stdout()).unwrap();
@@ -707,7 +729,19 @@ Personality: {persona_traits}
                         std::io::stdin().read_line(&mut input).unwrap();
                         
                         if input.trim().eq_ignore_ascii_case("y") {
-                            let out = std::process::Command::new("bash").arg("-c").arg(cmd).current_dir(&self.cwd).output();
+                            // Apply Environment Scrubbing
+                            let env_builder = ronin_sandbox::isolation::environment::EnvironmentBuilder::new(
+                                ronin_sandbox::isolation::environment::EnvironmentProfile::default()
+                            );
+                            let safe_env = env_builder.build();
+
+                            let out = std::process::Command::new("bash")
+                                .arg("-c")
+                                .arg(cmd)
+                                .current_dir(&self.cwd)
+                                .envs(safe_env)
+                                .output();
+                                
                             match out {
                                 Ok(o) => {
                                     let stdout = String::from_utf8_lossy(&o.stdout);
