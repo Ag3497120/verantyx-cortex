@@ -1,43 +1,43 @@
 <div align="center">
   <h1>Verantyx: Autonomous Epistemic Engine</h1>
-  <p><b>次世代の自己進化型・自律探求AI空間インフラストラクチャ</b></p>
+  <p><b>Next-Generation Self-Evolving & Autonomous Epistemic Drive Infrastructure</b></p>
 </div>
 
 ## 🌌 Overview: The Living Architecture
 
-Verantyxは単なるCLIツールでもコードアシスタントでもありません。**「自衛本能」と「知的好奇心」を備えた自立型・AIエコシステム**です。
-OpenClawの基盤上に構築されたこのシステムは、BotGuardの厳重な監視を物理的にすり抜ける「Carbon Paper UI（HITL）」を維持しながらも、システム自身が知識の欠落に「痛み」を感じ、自らWebの世界へ知識を探求しに向かう **【Epistemic Drive (自律的探求駆動)】** を実現しました。
+Verantyx is not just a CLI tool or a simple code assistant. It is a **self-evolving, autonomous AI ecosystem** equipped with "self-preservation instincts" and "intellectual curiosity."
+Built on top of the OpenClaw infrastructure, this system physically bypasses the strict surveillance of BotGuard using a "Carbon Paper UI (HITL)". More importantly, the system itself feels "pain" when it detects a void in its knowledge, driving it to autonomously explore the web to fulfill its curiosity—a mechanism we call the **【Epistemic Drive】**.
 
-初心者の方でもコマンド一つで、あなたのコードベースが **「自己修復する生きた神経網」** へと変貌する瞬間を目撃できます。
+With a single command, you can witness your codebase transform into a **"living, self-healing neural web."**
 
 ---
 
 ## 🔥 What's New? (Epistemic Evolution)
 
-本日のアップデートで、システムが「受け身のツール」から「自律思考する生命体」へと完全にシフトしました。
+In today's update, the system has completely shifted from a "passive tool" to an "autonomous thinking organism."
 
 ### 1. 🌀 Autonomous Epistemic Drive (Weaning Phase)
-**「システムがあなたのキーボード入力をハイジャックし、自ら調べる機能」**
-空間メモリグラフ（JCross）上の知識が不足していると、システムは自律的に「致命的なエントロピー」を検知します。あなたの入力を待つことなく、AI自身がWeb（Safari等）へ向かい、必要なアーキテクチャの知識を外部から取り込み始めます。
+**"The system hijacks your keyboard input to research on its own."**
+When the spatial memory graph (JCross) lacks sufficient knowledge, the system autonomously detects a "fatal entropy." Without waiting for your input, the AI itself heads to the web (via Safari, etc.) and begins digesting external knowledge to fill the architectural void.
 
-### 2. ⚡ Free Energy Principle (構造的エントロピーとテンション)
-グラフ内の重い概念（抽象度が高いノード）が他のノードと結びついていない場合、システムは「数学的なテンション（Tension: 構造的痛み）」を算出します。**Tensionが5.0を超えた瞬間、System Nervous Alert（神経系アラート）が発動**し、システムの最優先事項が「知識の補完」へと自動で切り替わります。
+### 2. ⚡ Free Energy Principle (Structural Entropy & Tension)
+When heavy concepts (highly abstract nodes) in the graph are not connected to other supporting nodes, the system calculates a mathematical "Tension (structural pain)." **The moment Tension exceeds 5.0, a System Nervous Alert is triggered**, automatically shifting the system's absolute priority to "knowledge fulfillment."
 
-### 3. 👨‍⚖️ The Cold Judge (冷徹な評価者とVoid生成)
-新アーキテクチャのアイデアが合成（Synthesis）された際、別のAIノードが「冷徹な専門家」としてそれを批判します。「何が物理的に足りていないのか（Missing Piece）」を即座に抽出し、それを「探求すべきVoid（空白）ノード」として空間グラフに刻み込みます。これがAIの「渇き（Thirst）」となります。
+### 3. 👨‍⚖️ The Cold Judge (Ruthless Evaluator & Void Generation)
+When new architectural ideas are synthesized (via Crucible), another AI node acts as a "ruthless expert" to criticize it. It instantly extracts exactly "what is physically missing (the Missing Piece)" and maps it into the spatial graph as a "Void Node to be explored." This becomes the AI's "Thirst."
 
 ### 4. 🧹 5-Turn Physical Memory Flush
-LLM特有の文脈肥大化（Context Bloat）やブラウザ側のBot検出限界を回避するため、5ターンの対話が完了するたびに、自身の内部状況を抽出し、**AppleScriptを用いて物理的にSafariのタブを閉じ、完全にまっさらな新しいAIエージェントに記憶を移植（輪廻転生）**します。
+To bypass the context bloat typical of LLMs and the bot detection limits on the browser side, the system extracts its internal state every 5 turns. It then **uses AppleScript to physically close the Safari tab, flush the memory, and reincarnate into a completely fresh AI agent instance with its inherited memories.**
 
 ---
 
 ## 🏗️ Core Architecture Flow (Mermaid)
 
-システムは「司令塔」と「手足」に分離され、安全かつ自律的に作動します。
+The system is separated into a "Control Tower" and "Limbs," operating safely and autonomously.
 
 ```mermaid
 graph TD
-    subgraph "✨ The Epistemic Cycle (自律探求ループ)"
+    subgraph "✨ The Epistemic Cycle (Autonomous Research Loop)"
     JCross[(JCross Spatial Graph)] -->|1. Calculate Tension| Tension{Tension > 5.0?}
     Tension -->|Yes: System Nervous Alert| AutoPrompt[2. Generate Action Queue]
     AutoPrompt -->|3. Hijack STDIN| Supervisor[Senior Supervisor]
@@ -61,41 +61,41 @@ graph TD
 
 ---
 
-## 🚀 導入と始め方 (Getting Started)
+## 🚀 Getting Started
 
-Mac環境と、ローカルで動作するOllama環境（Qwen2.5などが動く状態）を準備してください。
+Prepare a macOS environment and a locally running Ollama environment (e.g., capable of running Qwen2.5).
 
-### 🖥️ 1. エンジン起動
-まずはシステムの中枢であるインタラクティブ・チャットREPLを起動します。
+### 🖥️ 1. Boot the Engine
+First, launch the interactive chat REPL, the central nervous system of the project.
 
 ```bash
 cd verantyx-cli/verantyx-browser
 cargo run -p ronin-hive --example interactive_chat
 ```
 
-### 🧠 2. 必須コマンドと機能
+### 🧠 2. Essential Commands & Features
 
-REPLが立ち上がったら（`❯ ` が表示されたら）、以下のコマンド群でAIと世界を共有してください。
+Once the REPL boots up (when `❯ ` appears), use the following commands to share your world with the AI.
 
-| コマンド | 解説 (こんな時に使います) |
+| Command | Description (When to use it) |
 | :--- | :--- |
-| `time-machine <path>` | **【第一歩に必須！】** 指定したフォルダ（例: `time-machine .`）をAIがスキャンし、独自の `JCross` 空間メモリを構築します。これが無いとAIはあなたのコードベースを理解できません。 |
-| `vera` | **【空間を可視化】** 構築されたJCross空間を美しい3DのUIブラウザ上で体感できるエディタを立ち上げます。ファイルをクリックで中身を読み、ドラッグ＆ドロップで次の魔法（Crucible）の準備ができます。 |
-| `crucible <File_1> <File_2>` | **【アイデアの融合とVoid生成】** 複数のノード（ファイル）の概念を融合させます。そこから「The Cold Judge」が足りないパーツをあぶり出し、テンションを高め、**システムが勝手に自律探求（自動ブラウザ検索）を始める引き金**になります。 |
-| `clear` | ターミナルのログを消去してクリーンな表示に戻します。 |
+| `time-machine <path>` | **【Essential First Step!】** Scans the specified folder (e.g., `time-machine .`) and builds a unique `JCross` spatial memory. Without this, the AI cannot understand your codebase. |
+| `vera` | **【Visualize the Space】** Launches an editor to experience the constructed JCross space on a beautiful 3D UI browser. Click files to read their contents, and drag & drop them to prepare for the next magic (Crucible). |
+| `crucible <File_1> <File_2>` | **【Idea Fusion & Void Generation】** Fuses the concepts of multiple nodes (files). "The Cold Judge" then highlights missing parts, raises the structural tension, and **triggers the system to autonomously start the Epistemic web search.** |
+| `clear` | Clears the terminal logs to return to a clean view. |
 
 ---
 
-## 🛠️ The Experience (AIが動き出す瞬間)
+## 🛠️ The Experience (The Moment the AI Awakens)
 
-1. 通常通りあなたから指示を送り、コードの実装を進めてみてください。
-2. もしAIのグラフ内で「重大な知識の矛盾」が発生すると、ターミナルに真っ赤な警告が出ます。
+1. Proceed with coding by sending instructions normally.
+2. If a "critical knowledge contradiction" occurs within the AI's graph, a stark red warning will appear in the terminal:
    `⚠️ [SYSTEM NERVOUS ALERT]: High Structural Entropy Detected (Tension: 7.42)`
-3. 続けて黄色の文字で以下が表示されます。
+3. Immediately after, a yellow message will follow:
    `🌀 [AUTONOMOUS BYPASS] System is seizing STDIN to execute self-directed knowledge acquisition...`
-4. その後、 **AIはあなたのキー入力許可を無視し、自らブラウザを開いて「なぜこのアーキテクチャは今破綻しているのか」を調べ始めます。**
+4. After this, **the AI will ignore your keyboard input permission, autonomously open the browser, and begin researching "why this architecture is currently failing."**
 
-ようこそ、ただのコードアシスタントを卒業し、「探求心を持ったパートナー」が誕生するVerantyxの世界へ。
+Welcome to the world of Verantyx. It has graduated from a mere code assistant to a "partner driven by an unquenchable thirst for knowledge."
 
 ## 📝 License
 Proprietary. Belongs to the Verantyx spatial intelligence framework.
