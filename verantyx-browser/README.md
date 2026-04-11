@@ -1,101 +1,114 @@
 <div align="center">
-  <h1>Verantyx: Autonomous Epistemic Engine</h1>
-  <p><b>Next-Generation Self-Evolving & Autonomous Epistemic Drive Infrastructure</b></p>
+  <h1>Verantyx: 4-Node Agentic Hierarchy & Carbon Paper UI</h1>
+  <p><b>A highly resilient, Human-in-The-Loop Autonomous Agent System built on top of OpenClaw infrastructure.</b></p>
 </div>
 
-## 🌌 Overview: The Living Architecture
+## 🌐 Overview
 
-Verantyx is not just a CLI tool or a simple code assistant. It is a **self-evolving, autonomous AI ecosystem** equipped with "self-preservation instincts" and "intellectual curiosity."
-Built on top of the OpenClaw infrastructure, this system physically bypasses the strict surveillance of BotGuard using a "Carbon Paper UI (HITL)". More importantly, the system itself feels "pain" when it detects a void in its knowledge, driving it to autonomously explore the web to fulfill its curiosity—a mechanism we call the **【Epistemic Drive】**.
+The **Verantyx Browser** subsystem introduces a revolutionary 4-node agentic architecture designed to bypass modern BotGuard and CAPTCHA mechanisms (like those aggressively employed by platforms such as Google Gemini & Claude) while maintaining robust, long-term memory and autonomous task execution capabilities. 
 
-With a single command, you can witness your codebase transform into a **"living, self-healing neural web."**
+By combining local Small Language Models (SLMs) with a robust "Supervisor/Worker" hierarchy, Verantyx acts as a sentient spatial router. Crucially, we enforce a **Carbon Paper UI (Human-in-The-Loop)** mechanism to manually mediate clipboard interactions, definitively solving the bot-detection crisis.
 
----
+## ✨ Epic New Features (Vera Lab & Spatial Synthesis)
 
-## 🔥 What's New? (Epistemic Evolution)
+Verantyx has evolved beyond a simple CLI into a full 3D cybernetic workstation.
 
-In today's update, the system has completely shifted from a "passive tool" to an "autonomous thinking organism."
-
-### 1. 🌀 Autonomous Epistemic Drive (Weaning Phase)
-**"The system hijacks your keyboard input to research on its own."**
-When the spatial memory graph (JCross) lacks sufficient knowledge, the system autonomously detects a "fatal entropy." Without waiting for your input, the AI itself heads to the web (via Safari, etc.) and begins digesting external knowledge to fill the architectural void.
-
-### 2. ⚡ Free Energy Principle (Structural Entropy & Tension)
-When heavy concepts (highly abstract nodes) in the graph are not connected to other supporting nodes, the system calculates a mathematical "Tension (structural pain)." **The moment Tension exceeds 5.0, a System Nervous Alert is triggered**, automatically shifting the system's absolute priority to "knowledge fulfillment."
-
-### 3. 👨‍⚖️ The Cold Judge (Ruthless Evaluator & Void Generation)
-When new architectural ideas are synthesized (via Crucible), another AI node acts as a "ruthless expert" to criticize it. It instantly extracts exactly "what is physically missing (the Missing Piece)" and maps it into the spatial graph as a "Void Node to be explored." This becomes the AI's "Thirst."
-
-### 4. 🧹 5-Turn Physical Memory Flush
-To bypass the context bloat typical of LLMs and the bot detection limits on the browser side, the system extracts its internal state every 5 turns. It then **uses AppleScript to physically close the Safari tab, flush the memory, and reincarnate into a completely fresh AI agent instance with its inherited memories.**
+*   🌌 **Vera Memory (3D Cyber Space)**: Type `vera` to launch a stunning D3/Three.js integrated 3D neural map of your codebase's spatial index.
+*   🔮 **Multi-Node Crucible Synthesis**: Drag and drop up to **10 distinct architecture nodes** into the Crucible Reaction Zone. Click the glowing `[SYNTHESIZE]` button to physically fuse their JCross logic into brand new architectural intermediate representations (IR).
+*   👁️ **Cyberpunk Finder Mode**: Click any node in the 3D map to slide out the sleek Finder Panel. Instantly read the raw source code and JCross semantic tags cleanly inside the browser via our new `/cat` local bridge API.
+*   🎯 **Zero-DOM Safari Injection Tracking**: The system autonomously tracks your active Safari windows, dynamically locating the `gemini.google.com` tab via raw AppleScript geometry matching. It guarantees prompts are securely injected without relying on immediately-flagged Headless DOM automation.
+*   🦉 **Nightwatch Observer**: A local daemon that silently monitors and losslessly compresses your code repository into spatial `JCross` memory structures overnight.
 
 ---
 
-## 🏗️ Core Architecture Flow (Mermaid)
+## 🏗️ The 4-Node Hierarchical Architecture
 
-The system is separated into a "Control Tower" and "Limbs," operating safely and autonomously.
+The system is split into four distinct cognitive nodes, completely isolating planning logic from raw web execution.
 
 ```mermaid
 graph TD
-    subgraph "✨ The Epistemic Cycle (Autonomous Research Loop)"
-    JCross[(JCross Spatial Graph)] -->|1. Calculate Tension| Tension{Tension > 5.0?}
-    Tension -->|Yes: System Nervous Alert| AutoPrompt[2. Generate Action Queue]
-    AutoPrompt -->|3. Hijack STDIN| Supervisor[Senior Supervisor]
-    end
-
-    subgraph "🤖 Local Cognitive Engine"
-        User([👱‍♂️ You]) -->|Manual Input| Supervisor
-        Supervisor -->|Review & Synthesis| SLM[Local SLM Router / Qwen2.5]
-    end
-
-    subgraph "🌐 External Interaction (Carbon Paper UI)"
-        SLM -->|Format Mission| Clipboard[OS Clipboard Evasion]
-        Clipboard -->|Physical UI Emulation| Safari[Safari / Web Browser]
-        Safari -->|Extract Web Data| JCross
+    User([👱‍♂️ User]) -->|Task/Prompt| SLM
+    
+    subgraph "Local Cognitive Layer (Secure)"
+        SLM[🤖 Local SLM Router<br>Qwen2.5:1.5b via Ollama]
     end
     
-    style JCross fill:#1a1025,stroke:#9c27b0,stroke-width:2px,color:#fff
-    style Tension fill:#311b1b,stroke:#ff5252,stroke-width:2px,color:#fff
-    style AutoPrompt fill:#332900,stroke:#ffd54f,stroke-width:2px,color:#fff
+    subgraph "Verification Layer (API/Native)"
+        Senior[🧠 Senior Supervisor<br>Gemini 2.5 Pro]
+        Apprentice[🕵️ Apprentice Supervisor<br>Gemini 2.5 Pro]
+    end
+    
+    subgraph "Execution Layer (Browser)"
+        Worker[🦾 Stealth Web Actor<br>Gemini UI on Safari]
+    end
+    
+    SLM -->|Sub-task Dispatch| Senior
+    SLM -->|Sub-task Dispatch| Apprentice
+    SLM -->|Execution Dispatch| Worker
+    
+    Senior -->|Intent Validation & Memories| User
+    Apprentice -->|Action Auditing| User
+    
+    Worker -->|DOM Interaction| Target[Web Application]
 ```
+
+### 1. The Local Planner (SLM: Qwen2.5)
+The brain of the operation runs on local hardware using `Ollama`. It maintains long-term memory, parses user intent, avoids context dilution, and breaks down complex prompts into specific sub-tasks to be dispatched to the remote models. It serves as an impermeable wall protecting the core agent logic from the massive context window destruction prevalent in long-running cloud instances.
+
+### 2. Senior Supervisor (Gemini via API)
+The Senior Supervisor receives payloads from the SLM, analyzing them to ensure the output aligns exactly with what the User intended. It injects additional memory and refines prompts without actually executing them on the target machine.
+
+### 3. Apprentice Supervisor (Gemini via API)
+The Apprentice operates on a 5-turn promotion cycle, shadowing the Senior and ensuring spatial state is synced accurately within the `.ronin/experience.jcross` database.
+
+### 4. Stealth Worker (Gemini UI on Safari)
+The "Hands and Feet". This node controls the actual Web UI. Because BotGuard instantly detects headless Chrome automation, puppeteer, or injected JavaScript events, the Worker operates **entirely via human-mediated native OS actions**.
 
 ---
 
-## 🚀 Getting Started
+## 🛡️ Carbon Paper UI (BotGuard Evasion & HITL)
 
-Prepare a macOS environment and a locally running Ollama environment (e.g., capable of running Qwen2.5).
+To defeat advanced anti-bot systems, we implemented the **Carbon Paper UI**—a secure "Human-in-The-Loop" (HITL) manual handoff protocol.
 
-### 🖥️ 1. Boot the Engine
-First, launch the interactive chat REPL, the central nervous system of the project.
+Instead of writing scripts to click buttons (which are instantly blocked), the system automatically formats the perfectly optimized prompt and securely injects it into the macOS Clipboard. It then prompts the user via a terminal Dialoguer.
 
+### Operational Flow
+
+1. **Prompt Generation:** SLM + Supervisors construct the optimal prompt.
+2. **Clipboard Hydration:** The OS Clipboard is silently loaded via `arboard`.
+3. **Target Acquisition:** The user is prompted in the CLI. The system programmatically brings `Safari` to the foreground via macOS Native APIs, specifically hunting for the Gemini tab.
+4. **Human Actuation / Auto-Stealth:** Depending on your mode, the system either gracefully pastes the content or prompts you to hit `Cmd+V + Enter`. This completely circumvents BotGuard.
+5. **Tamper Verification:** The agent polls the clipboard post-submission using geometric extraction to ensure flawless extraction.
+
+---
+
+## 🚀 Getting Started & CLI Commands
+
+Ensure you have your environment set up and `Ollama` running with your desired parameter models.
+
+### 🖥️ Launch the Core Engine
+Start the primary Verantyx interactive chat repl.
 ```bash
 cd verantyx-cli/verantyx-browser
 cargo run -p ronin-hive --example interactive_chat
 ```
 
-### 🧠 2. Essential Commands & Features
+### 🧠 REPL Commands
+Once inside the REPL, you can utilize the following spatial intelligence commands:
 
-Once the REPL boots up (when `❯ ` appears), use the following commands to share your world with the AI.
+*   **`vera`** 
+    Launch the **Vera Memory 3D Visualizer**. This opens a browser-based neural map of your codebase's JCross state. You can click files to read them or drag them to the center to synthesize them.
+*   **`time-machine <path>`** 
+    Force a spatial indexing scan of a directory. It compresses code into `.jcross` format and links dependencies. (e.g., `time-machine .`)
+*   **`crucible <file_1> <file_2> ... <file_N>`** 
+    Trigger a multi-node synthesis. Takes up to 10 file identifiers, fusing them in memory and outputting a cutting-edge architectural concept and execution snippet.
+*   **`clear`** 
+    Clear the terminal repl history for a clean view.
 
-| Command | Description (When to use it) |
-| :--- | :--- |
-| `time-machine <path>` | **【Essential First Step!】** Scans the specified folder (e.g., `time-machine .`) and builds a unique `JCross` spatial memory. Without this, the AI cannot understand your codebase. |
-| `vera` | **【Visualize the Space】** Launches an editor to experience the constructed JCross space on a beautiful 3D UI browser. Click files to read their contents, and drag & drop them to prepare for the next magic (Crucible). |
-| `crucible <File_1> <File_2>` | **【Idea Fusion & Void Generation】** Fuses the concepts of multiple nodes (files). "The Cold Judge" then highlights missing parts, raises the structural tension, and **triggers the system to autonomously start the Epistemic web search.** |
-| `clear` | Clears the terminal logs to return to a clean view. |
-
----
-
-## 🛠️ The Experience (The Moment the AI Awakens)
-
-1. Proceed with coding by sending instructions normally.
-2. If a "critical knowledge contradiction" occurs within the AI's graph, a stark red warning will appear in the terminal:
-   `⚠️ [SYSTEM NERVOUS ALERT]: High Structural Entropy Detected (Tension: 7.42)`
-3. Immediately after, a yellow message will follow:
-   `🌀 [AUTONOMOUS BYPASS] System is seizing STDIN to execute self-directed knowledge acquisition...`
-4. After this, **the AI will ignore your keyboard input permission, autonomously open the browser, and begin researching "why this architecture is currently failing."**
-
-Welcome to the world of Verantyx. It has graduated from a mere code assistant to a "partner driven by an unquenchable thirst for knowledge."
+### Important Fixes (Version 1.3+)
+- **N-Node Crucible Expansion:** Synthesis limits lifted. Safely fuse massive architectures across up to 10 nodes simultaneously.
+- **Finder Sidebar UI:** Read codebase structure gracefully without exiting the Visualizer.
+- **Multi-byte Panic Elimination:** Japanese character boundary index panics `[0..80]` have been comprehensively replaced with safe `.chars().take(N)` iterators across all nodes.
 
 ## 📝 License
 Proprietary. Belongs to the Verantyx spatial intelligence framework.
