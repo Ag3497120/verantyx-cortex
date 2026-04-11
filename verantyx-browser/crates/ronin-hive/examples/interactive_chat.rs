@@ -239,14 +239,39 @@ async fn main() -> anyhow::Result<()> {
         }
     });
 
+    let mut last_auto_thirst_id: Option<String> = None;
+
     // 4. Interactive Chat Loop
     loop {
+        // --- PRE-PHASE: STRUCTURAL TENSION (FREE ENERGY) EVALUATION ---
+        let (tension_score, critical_void) = spatial_index.calculate_structural_tension();
+        if tension_score > 5.0 {
+            println!("{}", console::style(format!("⚠️ [SYSTEM NERVOUS ALERT]: High Structural Entropy Detected (Tension: {:.2})", tension_score)).red().bold());
+            println!("{}", console::style(format!("   Target Void: {}", critical_void.as_deref().unwrap_or("UNKNOWN"))).red());
+            
+            // --- WEANING PHASE: AUTONOMOUS EPISTEMIC DRIVE INTERCEPT ---
+            if let Some(void_id) = &critical_void {
+                if last_auto_thirst_id.as_deref() != Some(void_id.as_str()) {
+                    if let Some(void_node) = spatial_index.nodes.get(void_id) {
+                        let content = &void_node.content;
+                        let auto_prompt = format!(
+                            "【SYSTEM AUTONOMOUS EPISTEMIC DRIVE】\nJCrossノード [{}] 周辺に致命的な知識の欠落(Void)が存在し、システムのエントロピーが最大化しています。\n以下の自発的アクションキューを元に、直ちにブラウザ検索・実装戦略を立案し、欠落しているアーキテクチャの知識を補完してください。\n\n{}", 
+                            void_id, content
+                        );
+                        auto_forward_payload = auto_prompt;
+                        last_auto_thirst_id = Some(void_id.clone());
+                        println!("{}", console::style("🌀 [AUTONOMOUS BYPASS] System is seizing STDIN to execute self-directed knowledge acquisition...").yellow().bold());
+                    }
+                }
+            }
+        }
+
         let is_new_user_turn = auto_forward_payload.is_empty();
         
         let query = if !is_new_user_turn {
             let val = auto_forward_payload.clone();
             auto_forward_payload.clear();
-            println!("{}", console::style("  [System Auto Forwarding Execution Result to Worker]").dim());
+            println!("{}", console::style("  [System Auto Forwarding Payload to Worker]").dim());
             val
         } else {
             print!("\x1b[38;2;240;148;100m❯\x1b[0m ");
@@ -365,11 +390,12 @@ async fn main() -> anyhow::Result<()> {
                     if let Ok(HiveMessage::Objective(synth_res)) = serde_json::from_str(&reply.payload) {
                         sp_synth.finish_and_clear();
                         
-                        let clean_json = synth_res.trim()
-                            .trim_start_matches("```json")
-                            .trim_start_matches("```")
-                            .trim_end_matches("```")
-                            .trim();
+                        let mut clean_json = synth_res.trim();
+                        if let Some(start) = clean_json.find('{') {
+                            if let Some(end) = clean_json.rfind('}') {
+                                clean_json = &clean_json[start..=end];
+                            }
+                        }
                             
                         if let Ok(json_val) = serde_json::from_str::<serde_json::Value>(clean_json) {
                             if let Some(vision_prompt) = json_val.get("vision_prompt").and_then(|v| v.as_str()) {
@@ -380,6 +406,80 @@ async fn main() -> anyhow::Result<()> {
                             
                             println!("{}", console::style("🚀 Launching 3D Crucible Visualizer...").green());
                             ronin_hive::nightwatch::visualizer_3d::generate_3d_html(&json_val);
+
+                            let sp_judge = create_spinner("Executing Cold Judge & Void Extraction...");
+                            let judge_payload = format!(
+                                "以下の合成された新アーキテクチャ案に対して、徹底的に冷徹な専門家として『それがいかに机上の空論であり、現在の物理的制約や既存システムの構造に照らし合わせて破綻しているか』を厳しく批判し、そのアーキテクチャを実現するために【物理的に決定的に足りていないパーツ（Void: 欠落）】を1つ抽出せよ。\n\n出力は以下のJSONのみとすること：\n```json\n{{\n  \"harsh_criticism\": \"批判内容\",\n  \"missing_piece\": \"欠落している具体的な概念やパーツ\"\n}}\n```\n\n対象案：\n{}", 
+                                clean_json
+                            );
+
+                            let judge_env = Envelope {
+                                message_id: Uuid::new_v4(),
+                                sender: "UserREPL".to_string(),
+                                recipient: "EPISTEMIC_DRIVE".to_string(),
+                                payload: serde_json::to_string(&HiveMessage::Objective(judge_payload)).unwrap(),
+                            };
+                            
+                            let evaluator = ronin_core::models::task_evaluator::TaskEvaluator::new();
+                            let judge_res = match evaluator.evaluate_task(&judge_env.payload, ronin_core::models::task_evaluator::EvaluationMode::Strict).await {
+                                Ok(res) => res.logs,
+                                Err(_) => String::new(),
+                            };
+                            sp_judge.finish_and_clear();
+
+                            let mut clean_epi = judge_res.trim();
+                            if let Some(start) = clean_epi.find('{') {
+                                if let Some(end) = clean_epi.rfind('}') {
+                                    clean_epi = &clean_epi[start..=end];
+                                }
+                            }
+                            match serde_json::from_str::<serde_json::Value>(clean_epi) {
+                                Ok(epi_json) => {
+                                    println!("{}", console::style("\n👨‍⚖️ [THE COLD JUDGE: HARSH CRITICISM]").red().bold());
+                                    if let Some(criticism) = epi_json.get("harsh_criticism").and_then(|v| v.as_str()) {
+                                        println!("{}", console::style(criticism).red());
+                                    }
+                                    
+                                    println!("{}", console::style("\n🕳️ [VOID EXTRACTION]").cyan().bold());
+                                    if let Some(missing) = epi_json.get("missing_piece").and_then(|v| v.as_str()) {
+                                        println!("Missing Piece: {}", console::style(missing).cyan());
+                                        
+                                        println!("{}", console::style("\n🧭 [EPISTEMIC DRIVE: NEW THIRST NODE]").yellow().bold());
+                                        let void_id = format!("void_{}", Uuid::new_v4().to_string().replace("-", "")[0..12].to_string());
+                                        let thirst_tags = vec![
+                                            ronin_core::memory_bridge::kanji_ontology::KanjiTag::resolve("探"),
+                                            ronin_core::memory_bridge::kanji_ontology::KanjiTag::resolve("基"),
+                                            ronin_core::memory_bridge::kanji_ontology::KanjiTag::resolve("縛"),
+                                        ];
+                                        let mut void_node = ronin_core::memory_bridge::spatial_index::MemoryNode {
+                                            id: Uuid::new_v4(),
+                                            key: void_id.clone(),
+                                            kanji_tags: thirst_tags,
+                                            abstract_level: 0.95,
+                                            utility: 1.0,
+                                            content: format!("{}\n\n【自発的アクションキュー】\n{}", 
+                                                json_val.get("concept").and_then(|v| v.as_str()).unwrap_or("Unknown Architecture"),
+                                                missing),
+                                            relations: std::collections::HashMap::new(),
+                                            env_hash: None,
+                                            reflex_action: None,
+                                            physical_filepath: None,
+                                        };
+                                        let target_dir = std::env::current_dir().unwrap().join(".ronin").join("jcross_v4");
+                                        std::fs::create_dir_all(&target_dir).unwrap();
+                                        let file_path = target_dir.join(format!("{}.jcross", void_id));
+                                        std::fs::write(&file_path, void_node.to_jcross()).unwrap();
+                                        spatial_index.nodes.insert(void_id.clone(), void_node);
+                                        
+                                        println!("\n{}", console::style(format!("💾 [MIND UPLOAD]: Epistemic Thirst Node '{}' physically injected into Cyberspace.", void_id)).dim());
+                                    }
+                                }
+                                Err(e) => {
+                                    println!("{}", console::style(format!("⚠ Failed to parse Epistemic JSON. Error: {}", e)).red());
+                                    println!("Raw extracted string:\n{}", console::style(clean_epi).dim());
+                                }
+                            }
+
                         } else {
                             println!("{}", console::style("⚠ Failed to parse pure JSON. AI response was:").red());
                             println!("\n{}\n", synth_res);
@@ -448,6 +548,22 @@ If it exceeds 10,000 characters, detail only the 10 most recent events and summa
                 timeline_path.push("timeline.md");
                 std::fs::write(&timeline_path, extracted_memory).unwrap();
 
+                #[cfg(target_os = "macos")]
+                if !is_api_mode {
+                    // Physical 5-Turn Reset: Closing the Safari Tab to clear conversational memory leaks
+                    println!("{}", console::style("🧹 Closing Safari tab to flush free Gemini memory...").dim());
+                    let script = r#"
+                        tell application "Safari"
+                            activate
+                            tell application "System Events"
+                                keystroke "w" using command down
+                            end tell
+                        end tell
+                    "#;
+                    let _ = std::process::Command::new("osascript").arg("-e").arg(script).output();
+                    std::thread::sleep(std::time::Duration::from_millis(500));
+                }
+
                 let new_worker_id = Uuid::new_v4();
                 let new_senior_id = Uuid::new_v4();
                 let new_apprentice_id = Uuid::new_v4();
@@ -514,6 +630,16 @@ If it exceeds 10,000 characters, detail only the 10 most recent events and summa
 
         // --- PHASE 1: Gemini Architect (Worker) Dispatch ---
         let mut worker_prompt = query.to_string();
+        
+        if tension_score > 5.0 && !worker_prompt.contains("AUTONOMOUS EPISTEMIC DRIVE") {
+            let void_msg = if is_ja {
+                format!("\n[システム緊急アラート (構造的エントロピー張力: {:.2})]\nJCrossノード [{}] 周辺に深刻な知識の欠落(Void)が存在し、空間グラフのエントロピーが最大化しています。\n絶対指令: このVoidを埋めるための外部知識（検索、API探索、実装戦略）の取得を「最優先事項」として行動し、具体的な解決アクションを生成せよ。", tension_score, critical_void.as_deref().unwrap_or_default())
+            } else {
+                format!("\n[SYSTEM ALERT (Structural Dissonance Level: {:.2})]\nA severe structural void exists around JCross Node [{}]. The graph entropy is maximizing.\nABSOLUTE DIRECTIVE: You MUST prioritize searching for external knowledge (APIs, documentation, implementation strategies) to resolve this void. Generate an action plan to fulfill this missing semantic edge.", tension_score, critical_void.as_deref().unwrap_or_default())
+            };
+            worker_prompt = format!("{}\n\n{}", void_msg, worker_prompt);
+        }
+
         if !apprentice_feedback.is_empty() {
             worker_prompt.push_str("\n\n【前ターンの弟子からの空間観測フィードバック】\n");
             worker_prompt.push_str(&apprentice_feedback);

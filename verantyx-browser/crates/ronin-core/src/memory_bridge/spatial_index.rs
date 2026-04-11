@@ -270,6 +270,41 @@ impl SpatialIndex {
         self.nodes.keys().cloned().collect()
     }
 
+    /// Evaluates the JCross graph for Structural Entropy (Free Energy Principle).
+    /// Returns (Tension Score, Option<Critical Void Node ID>)
+    pub fn calculate_structural_tension(&self) -> (f64, Option<String>) {
+        let mut max_tension = 0.0;
+        let mut critical_void_id = None;
+
+        for node in self.nodes.values() {
+            // Check if node is highly conceptual/abstract but lacks sufficient connectivity
+            // Weight and Utility naturally increase tension if unfulfilled.
+            if node.abstract_level > 0.7 {
+                let connected_count = node.relations.len();
+                
+                // If a heavy conceptual node has too few edge connections:
+                if connected_count < 2 {
+                    // It generates internal strain (Tension)
+                    // Added a multiplier for 'explore/thirst' tags
+                    let mut thirst_multiplier = 1.0;
+                    for tag in &node.kanji_tags {
+                        if tag.name == "探" || tag.name == "渇" {
+                            thirst_multiplier += 2.0;
+                        }
+                    }
+
+                    let tension = (node.utility * node.abstract_level * thirst_multiplier * 10.0) / ((connected_count as f64) + 0.1);
+                    if tension > max_tension {
+                        max_tension = tension;
+                        critical_void_id = Some(node.key.clone());
+                    }
+                }
+            }
+        }
+        (max_tension, critical_void_id)
+    }
+
+
     /// Hydrates isolated `.jcross` text nodes utilizing `.jidx` caches
     pub async fn hydrate(&mut self) -> Result<usize> {
         let mut total = 0;
