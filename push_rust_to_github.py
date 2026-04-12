@@ -4,7 +4,7 @@ import subprocess, base64, os
 
 REPO = "Ag3497120/ronin-cli"
 BASE_DIR = "/Users/motonishikoudai/verantyx-cli"
-UPLOAD_DIRS = ["verantyx-browser/crates", "verantyx-limb-suite", "verantyx-browser/Cargo.toml", "README.md", "package.json", "JCross_v4_Specification_JA.md"]
+UPLOAD_DIRS = ["verantyx-browser/crates", "verantyx-browser/Cargo.toml", "README.md", "package.json", "JCross_v4_Specification_JA.md"]
 INCLUDE_EXTS = {".rs", ".toml", ".py", ".json", ".md", ".html", ".js"}
 
 def get_sha(path):

@@ -623,9 +623,40 @@ impl SymbioticMacOS {
             }
 
             info!("[OS_BRIDGE] Geometric Extractor completed successfully.");
+            info!("[OS_BRIDGE] Geometric Extractor completed successfully.");
             return Ok(());
         }
 
         anyhow::bail!("Semantic Cursor Extraction Failed: Could not locate 'Copy' button via DOM topology.");
+    }
+
+    /// Focuses a specific Safari Window. Used for Swarm parallelization to bring the window into physical view before Cmd+V.
+    pub async fn focus_safari_window(window_index: usize) -> anyhow::Result<()> {
+        let script = format!(
+            r#"tell application "Safari"
+                activate
+                set index of window {} to 1
+            end tell"#,
+            window_index
+        );
+        let _ = Command::new("osascript").arg("-e").arg(script).output().await?;
+        Ok(())
+    }
+
+    /// Brings the Terminal application hosting this CLI back to the front to prompt the user.
+    pub fn bring_terminal_to_front() {
+        let term_prog = std::env::var("TERM_PROGRAM").unwrap_or_else(|_| "Terminal".to_string());
+        let app_name = match term_prog.as_str() {
+            "iTerm.app" => "iTerm",
+            "Apple_Terminal" => "Terminal",
+            "vscode" => "Code",
+            "Zed" => "Zed",
+            "Ghostty" => "Ghostty",
+            "Alacritty" => "Alacritty",
+            "WezTerm" => "WezTerm",
+            _ => "Terminal", // Fallback
+        };
+        let script = format!("tell application \"{}\" to activate", app_name);
+        let _ = std::process::Command::new("osascript").arg("-e").arg(script).spawn();
     }
 }

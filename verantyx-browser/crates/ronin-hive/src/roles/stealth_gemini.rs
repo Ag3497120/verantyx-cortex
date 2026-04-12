@@ -437,10 +437,10 @@ Personality: {persona_traits}
                         final_output = "Task forcefully terminated to prevent infinite tool loop.".to_string();
                         break;
                     }
-
+                    let tab_idx = self.tab_index;
                     let run_js_async = |js: String| {
                         async move {
-                            let script = format!(r#"tell application "Safari" to do JavaScript "{}" in front document"#, js.replace("\"", "\\\""));
+                            let script = format!(r#"tell application "Safari" to do JavaScript "{}" in tab {} of window 1"#, js.replace("\"", "\\\""), tab_idx);
                             if let Ok(out) = tokio::process::Command::new("osascript").arg("-e").arg(&script).output().await {
                                 String::from_utf8_lossy(&out.stdout).trim().to_string()
                             } else {
@@ -521,6 +521,7 @@ Personality: {persona_traits}
                                 println!("{}", console::style(if self.is_japanese_mode { "    ╰─> (システムが自動で選択しました...)" } else { "    ╰─> (System Auto-Selected...)" }).cyan());
                                 tokio::time::sleep(tokio::time::Duration::from_millis(1500)).await;
                             } else {
+                                crate::roles::symbiotic_macos::SymbioticMacOS::bring_terminal_to_front();
                                 let selections = if self.is_japanese_mode { vec![" フォーカス移動", " もう一度コピー"] } else { vec![" Move Focus", " Copy Again"] };
                                 let selection = dialoguer::Select::new()
                                     .with_prompt("Action?")
@@ -529,18 +530,12 @@ Personality: {persona_traits}
                             }
 
                             // Step 2: Paste and Send Information
-                            let pos_str = match self.tab_index {
-                                1 => "left",
-                                2 => "middle",
-                                3 => "right",
-                                _ => "left",
-                            };
-                            println!("{}", console::style(format!("🚀 Focused {} window. Cmd+V to paste & Send!", pos_str)).green());
-                            let _ = crate::roles::symbiotic_macos::SymbioticMacOS::focus_safari_panel(pos_str).await;
+                            println!("{}", console::style(format!("🚀 Focused Window {}. Cmd+V to paste & Send!", self.tab_index)).green());
+                            let _ = crate::roles::symbiotic_macos::SymbioticMacOS::focus_safari_window(self.tab_index as usize).await;
                             tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
                             
                             if auto_mode == crate::config::AutomationMode::AutoStealth || auto_mode == crate::config::AutomationMode::AutoPremium {
-                                println!("{}", console::style("📝 (自動モードのため、自動ペースト＆送信を実行します...)").cyan());
+                                println!("{}", console::style(if self.is_japanese_mode { "📝 (自動モードのため、自動ペースト＆送信を実行します...)" } else { "📝 (Auto mode: Executing Auto-Paste & Send...)"}).cyan());
                                 if let Err(e) = crate::roles::symbiotic_macos::SymbioticMacOS::auto_visual_calibrated_paste_and_send(&payload_str).await {
                                     println!("{} ❌ [FATAL] Auto Logic Failed: {:?}", console::style("[AUTO]").red(), e);
                                 }
@@ -556,12 +551,14 @@ Personality: {persona_traits}
                                 let dynamic_wait = char_count / 100; // 100文字につき1秒追加追加
                                 let wait_time = std::cmp::min(base_wait + dynamic_wait, 60); // 最大60秒
                                 
-                                let prompt_str = if self.is_japanese_mode { "✔ 準備ができたらEnterを押してください (Press Enter to start) › Extraction Start" } else { "✔ 準備ができたらEnterを押してください (Press Enter to start) › Extraction Start" };
+                                let prompt_str = if self.is_japanese_mode { "✔ 準備ができたらEnterを押してください (Press Enter to start) › Extraction Start" } else { "✔ Ready to extract? Press Enter to start › Extraction Start" };
                                 println!("{}", prompt_str);
                                 println!("{}", console::style(if self.is_japanese_mode { format!("    ╰─> (システムが自動でエンターを押して抽出します... コンテキスト量に応じて動的待機中: {}秒)", wait_time) } else { format!("    ╰─> (System is automatically pressing Enter... Dynamic wait time: {}s)", wait_time) }).cyan());
                                 tokio::time::sleep(tokio::time::Duration::from_secs(wait_time)).await;
                             } else {
-                                let _ = dialoguer::Select::new().with_prompt("✔ 準備ができたらEnterを押してください (Press Enter to start)")
+                                crate::roles::symbiotic_macos::SymbioticMacOS::bring_terminal_to_front();
+                                let prompt_str = if self.is_japanese_mode { "✔ 準備ができたらEnterを押してください" } else { "✔ Ready to extract? Press Enter" };
+                                let _ = dialoguer::Select::new().with_prompt(prompt_str)
                                     .default(0).items(&[" Extraction Start"]).interact().unwrap();
                             }
 

@@ -98,14 +98,18 @@ Instead of writing scripts to click buttons (which are instantly blocked), the s
 
 ---
 
-## 🚀 Getting Started & CLI Commands
+## 🚀 Getting Started & Diagnostics
+
+Say goodbye to the chaotic `pip install`, `npm run`, and dependency hell. 
+Verantyx unifies everything under a **Single Rust Entrypoint** using `cargo`. Any auxiliary Python scripts or JavaScript UI dependencies are seamlessly executed and managed by the Rust orchestration layer.
 
 Ensure you have your environment set up and `Ollama` running with your desired parameter models.
 
 ### 🖥️ Launch the Core Engine
 Start the primary Verantyx interactive chat repl.
 ```bash
-cd verantyx-cli/verantyx-browser
+# Simply run cargo. It automatically coordinates any auxiliary scripts.
+cd verantyx-browser
 cargo run -p ronin-hive --example interactive_chat
 ```
 

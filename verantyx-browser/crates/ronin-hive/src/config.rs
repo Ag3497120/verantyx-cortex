@@ -54,6 +54,7 @@ pub struct VerantyxConfig {
     pub privacy: PrivacyConfig,
     pub nightwatch: NightwatchConfig,
     pub api_key: Option<String>,
+    pub colony_swarm_size: usize,
 }
 
 impl Default for VerantyxConfig {
@@ -78,6 +79,7 @@ impl Default for VerantyxConfig {
                 watch_dir: ".".to_string(),
             },
             api_key: None,
+            colony_swarm_size: 1,
         }
     }
 }
@@ -289,6 +291,16 @@ impl VerantyxConfig {
             existing.nightwatch.watch_dir
         };
 
+        let swarm_prompt = if lang_idx == 0 { "Colony Swarm ワーカー数 (1 = Chief単独, 最大30)" } else { "Colony Swarm Worker Count (1 = Chief only, Max 30)" };
+        let swarm_str: String = dialoguer::Input::with_theme(&OpenClaudeTheme)
+            .with_prompt(swarm_prompt)
+            .default(existing.colony_swarm_size.to_string())
+            .interact_text()
+            .unwrap();
+        let mut colony_swarm_size: usize = swarm_str.parse().unwrap_or(1);
+        if colony_swarm_size < 1 { colony_swarm_size = 1; }
+        if colony_swarm_size > 30 { colony_swarm_size = 30; }
+
         let config = Self {
             language: lang_str,
             automation_mode,
@@ -298,6 +310,7 @@ impl VerantyxConfig {
             privacy: PrivacyConfig { auto_sync },
             nightwatch: NightwatchConfig { enabled: nightwatch_enabled, model: nightwatch_model, watch_dir },
             api_key,
+            colony_swarm_size,
         };
 
         if let Err(e) = config.save(cwd) {

@@ -1,0 +1,35 @@
+■ JCROSS_NODE_meta_learning_Cargo
+
+【空間座相】
+[創:0.9]
+
+【次元概念】
+Symbolic Engine Growth Observation
+
+【時間刻印】
+2026-04-11T07:23:32+00:00
+
+【連帯】
+Cargo:派生:1
+
+【抽象度】
+0.9
+
+---
+[本質記憶]
+Symbolic Extraction Log
+Target: Cargo
+Reasoning Delta: ```json
+{
+  "kanji_tags": ["[構成:0.9]", "[依存:0.8]", "[統合:0.7]"],
+  "concept": "Crate dependency graph and metadata definition for the compositor layer",
+  "abstract_level": 0.2,
+  "relations": [
+    "vx-layout:依存:1.0",
+    "vx-dom:依存:1.0",
+    "workspace:継承:0.9"
+  ],
+  "content": "Defines the build configuration for 'vx-compositor'. It establishes a structural dependency on 'vx-layout' and 'vx-dom' local crates, while inheriting versioning and common utility dependencies (serde, anyhow, thiserror) from the workspace root."
+}
+```
+===
