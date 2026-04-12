@@ -16,6 +16,7 @@ use std::time::Duration;
 enum ActiveAgent {
     Stealth(StealthWebActor),
     Hybrid(ronin_hive::roles::hybrid_api::HybridApiActor),
+    Swarm(ronin_hive::roles::colony_swarm::ColonyOrchestrator),
 }
 
 impl ActiveAgent {
@@ -23,6 +24,7 @@ impl ActiveAgent {
         match self {
             Self::Stealth(a) => a.receive(env).await,
             Self::Hybrid(a) => a.receive(env).await,
+            Self::Swarm(a) => a.receive(env).await,
         }
     }
 }
@@ -85,7 +87,8 @@ async fn main() -> anyhow::Result<()> {
     // 2. Dual-Window Visualization Orchestration (AppleScript) - Skip in API modes
     if !is_api_mode {
         let init_spinner = create_spinner(if is_ja { "ステルスブラウザを起動・調整中..." } else { "Spawning Custom Stealth Browser..." });
-        let split_screen_js = r#"
+        let target_tabs = std::cmp::max(1, config.colony_swarm_size) + 1; // +1 for the Senior Supervisor (which acts as memory bridge)
+        let split_screen_js = format!(r#"
         do shell script "open -a Safari"
         delay 1.5
         
@@ -97,25 +100,18 @@ async fn main() -> anyhow::Result<()> {
         
         set winHeight to (screenHeight * 0.85) as integer
         set topMargin to 50
-        set winWidth to (screenWidth * 0.65) as integer
+        set winWidth to (screenWidth * 0.8) as integer
         
         tell application "Safari"
             activate
             delay 0.5
             
-            make new document with properties {URL:"https://gemini.google.com/app"}
-            set _w1 to front window
-            set bounds of _w1 to {10, topMargin, 10 + winWidth, topMargin + winHeight}
-            
-            make new document with properties {URL:"https://gemini.google.com/app"}
-            set _w2 to front window
-            set bounds of _w2 to {100, topMargin, 100 + winWidth, topMargin + winHeight}
-            
-            make new document with properties {URL:"https://gemini.google.com/app"}
-            set _w3 to front window
-            set bounds of _w3 to {200, topMargin, 200 + winWidth, topMargin + winHeight}
+            repeat with i from 1 to {}
+                make new document with properties {{URL:"https://gemini.google.com/app"}}
+                set bounds of front window to {{10 + (i * 10), topMargin + (i * 10), 10 + winWidth + (i * 10), topMargin + winHeight + (i * 10)}}
+            end repeat
         end tell
-        "#;
+        "#, target_tabs);
         let _ = tokio::process::Command::new("osascript")
             .arg("-e")
             .arg(split_screen_js)
@@ -180,6 +176,12 @@ async fn main() -> anyhow::Result<()> {
             1,
             cloud_api_key.clone(),
         ))
+    } else if config.colony_swarm_size > 1 {
+        let mut swarm = ronin_hive::roles::colony_swarm::ColonyOrchestrator::new(subagent_id, std::env::current_dir().unwrap(), is_ja);
+        for i in 1..config.colony_swarm_size {
+            swarm.spawn_subordinate(i, "Colony Swarm Node", std::env::current_dir().unwrap(), is_ja);
+        }
+        ActiveAgent::Swarm(swarm)
     } else {
         ActiveAgent::Stealth(StealthWebActor::new(
             subagent_id,
@@ -231,10 +233,33 @@ async fn main() -> anyhow::Result<()> {
     let (stdin_tx, stdin_rx) = std::sync::mpsc::channel::<String>();
     std::thread::spawn(move || {
         let stdin = std::io::stdin();
+        let mut multi_line_buffer = String::new();
+        let mut in_multi_line = false;
+        
         loop {
             let mut buf = String::new();
             if stdin.read_line(&mut buf).is_ok() {
-                let _ = stdin_tx.send(buf.trim().to_string());
+                let trimmed = buf.trim();
+                
+                if trimmed == "<<<" {
+                    in_multi_line = true;
+                    multi_line_buffer.clear();
+                    println!("\n{}", console::style("--- 🟢 Multi-line input mode started. Paste your content, then type '>>>' and press Enter to submit ---").green().bold());
+                    continue;
+                }
+                
+                if trimmed == ">>>" && in_multi_line {
+                    in_multi_line = false;
+                    let _ = stdin_tx.send(multi_line_buffer.trim().to_string());
+                    multi_line_buffer.clear();
+                    continue;
+                }
+                
+                if in_multi_line {
+                    multi_line_buffer.push_str(&buf);
+                } else {
+                    let _ = stdin_tx.send(trimmed.to_string());
+                }
             }
         }
     });
@@ -260,7 +285,6 @@ async fn main() -> anyhow::Result<()> {
                         );
                         auto_forward_payload = auto_prompt;
                         last_auto_thirst_id = Some(void_id.clone());
-                        println!("{}", console::style("🌀 [AUTONOMOUS BYPASS] System is seizing STDIN to execute self-directed knowledge acquisition...").yellow().bold());
                     }
                 }
             }
@@ -269,11 +293,47 @@ async fn main() -> anyhow::Result<()> {
         let is_new_user_turn = auto_forward_payload.is_empty();
         
         let query = if !is_new_user_turn {
-            let val = auto_forward_payload.clone();
-            auto_forward_payload.clear();
-            println!("{}", console::style("  [System Auto Forwarding Payload to Worker]").dim());
-            val
+            ronin_hive::roles::symbiotic_macos::SymbioticMacOS::bring_terminal_to_front();
+            if is_ja {
+                print!("\x1b[38;2;240;148;100m[⚠️ 自発的探索 PENDING] 実行: Enter / キャンセル: 'n' ❯\x1b[0m ");
+            } else {
+                print!("\x1b[38;2;240;148;100m[⚠️ Auto-Drive PENDING] Execute: Enter / Cancel: 'n' ❯\x1b[0m ");
+            }
+            io::stdout().flush().unwrap();
+            
+            let mut input_res = String::new();
+            loop {
+                if let Ok(mut q) = bridge.crucible_command_queue.lock() {
+                    if let Some(cmd) = q.take() {
+                        input_res = cmd;
+                        break;
+                    }
+                }
+                if let Ok(line) = stdin_rx.try_recv() {
+                    input_res = line;
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+            
+            let val = input_res.trim();
+            if val == "n" || val == "no" || val == "cancel" {
+                auto_forward_payload.clear();
+                println!("{}", console::style("  [Autonomous Drive Skipped by User]").dim());
+                continue;
+            } else if val.is_empty() {
+                let payload = auto_forward_payload.clone();
+                auto_forward_payload.clear();
+                println!("{}", console::style("  [Executing Autonomous Payload]").dim());
+                payload
+            } else {
+                let payload = format!("{}\n\n【追加ユーザー指示】\n{}", auto_forward_payload, val);
+                auto_forward_payload.clear();
+                println!("{}", console::style("  [Merged Autonomous Payload with User Input]").dim());
+                payload
+            }
         } else {
+            ronin_hive::roles::symbiotic_macos::SymbioticMacOS::bring_terminal_to_front();
             print!("\x1b[38;2;240;148;100m❯\x1b[0m ");
             io::stdout().flush().unwrap();
             
@@ -416,15 +476,16 @@ async fn main() -> anyhow::Result<()> {
                             let judge_env = Envelope {
                                 message_id: Uuid::new_v4(),
                                 sender: "UserREPL".to_string(),
-                                recipient: "EPISTEMIC_DRIVE".to_string(),
+                                recipient: "SeniorSupervisor".to_string(),
                                 payload: serde_json::to_string(&HiveMessage::Objective(judge_payload)).unwrap(),
                             };
                             
-                            let evaluator = ronin_core::models::task_evaluator::TaskEvaluator::new();
-                            let judge_res = match evaluator.evaluate_task(&judge_env.payload, ronin_core::models::task_evaluator::EvaluationMode::Strict).await {
-                                Ok(res) => res.logs,
-                                Err(_) => String::new(),
-                            };
+                            let mut judge_res = String::new();
+                            if let Ok(Some(judge_reply)) = senior_agent.receive(judge_env).await {
+                                if let Ok(HiveMessage::Objective(res)) = serde_json::from_str(&judge_reply.payload) {
+                                    judge_res = res;
+                                }
+                            }
                             sp_judge.finish_and_clear();
 
                             let mut clean_epi = judge_res.trim();
@@ -446,13 +507,12 @@ async fn main() -> anyhow::Result<()> {
                                         
                                         println!("{}", console::style("\n🧭 [EPISTEMIC DRIVE: NEW THIRST NODE]").yellow().bold());
                                         let void_id = format!("void_{}", Uuid::new_v4().to_string().replace("-", "")[0..12].to_string());
-                                        let thirst_tags = vec![
-                                            ronin_core::memory_bridge::kanji_ontology::KanjiTag::resolve("探"),
-                                            ronin_core::memory_bridge::kanji_ontology::KanjiTag::resolve("基"),
-                                            ronin_core::memory_bridge::kanji_ontology::KanjiTag::resolve("縛"),
-                                        ];
-                                        let mut void_node = ronin_core::memory_bridge::spatial_index::MemoryNode {
-                                            id: Uuid::new_v4(),
+                                        let mut thirst_tags = Vec::new();
+                                        thirst_tags.extend(ronin_core::memory_bridge::kanji_ontology::KanjiTag::resolve("探"));
+                                        thirst_tags.extend(ronin_core::memory_bridge::kanji_ontology::KanjiTag::resolve("基"));
+                                        thirst_tags.extend(ronin_core::memory_bridge::kanji_ontology::KanjiTag::resolve("縛"));
+                                        
+                                        let void_node = ronin_core::memory_bridge::spatial_index::MemoryNode {
                                             key: void_id.clone(),
                                             kanji_tags: thirst_tags,
                                             abstract_level: 0.95,
@@ -460,10 +520,10 @@ async fn main() -> anyhow::Result<()> {
                                             content: format!("{}\n\n【自発的アクションキュー】\n{}", 
                                                 json_val.get("concept").and_then(|v| v.as_str()).unwrap_or("Unknown Architecture"),
                                                 missing),
-                                            relations: std::collections::HashMap::new(),
+                                            relations: Vec::new(),
                                             env_hash: None,
                                             reflex_action: None,
-                                            physical_filepath: None,
+                                            ..Default::default()
                                         };
                                         let target_dir = std::env::current_dir().unwrap().join(".ronin").join("jcross_v4");
                                         std::fs::create_dir_all(&target_dir).unwrap();
@@ -581,6 +641,12 @@ If it exceeds 10,000 characters, detail only the 10 most recent events and summa
                         1,
                         cloud_api_key.clone(),
                     ))
+                } else if config.colony_swarm_size > 1 {
+                    let mut swarm = ronin_hive::roles::colony_swarm::ColonyOrchestrator::new(new_worker_id, std::env::current_dir().unwrap(), is_ja);
+                    for i in 1..config.colony_swarm_size {
+                        swarm.spawn_subordinate(i, "Colony Swarm Node", std::env::current_dir().unwrap(), is_ja);
+                    }
+                    ActiveAgent::Swarm(swarm)
                 } else {
                     ActiveAgent::Stealth(StealthWebActor::new(
                         new_worker_id,
@@ -630,6 +696,54 @@ If it exceeds 10,000 characters, detail only the 10 most recent events and summa
 
         // --- PHASE 1: Gemini Architect (Worker) Dispatch ---
         let mut worker_prompt = query.to_string();
+        
+        // --- MASSIVE INPUT COMPRESSION INTERCEPT (gemma4:31b) ---
+        if worker_prompt.len() > 3000 {
+            if is_ja {
+                println!("{}", console::style("\n⚠️ 巨大なプロンプト(3000文字以上)を検知しました。無料版Web Geminiのパンクを防ぐため、gemma4:31bを使用してJCross形式に事前圧縮します...").yellow().bold());
+            } else {
+                println!("{}", console::style("\n⚠️ Massive prompt (>3000 chars) detected. Using gemma4:31b to compress into JCross format to prevent Gemini Web crash...").yellow().bold());
+            }
+            
+            let sp_compress = create_spinner("Compressing payload to JCross...");
+            let local_gemma = OllamaProvider::new("127.0.0.1", 11434);
+            let req = InferenceRequest {
+                model: "gemma4:31b".to_string(),
+                sampling: SamplingParams::for_midweight(),
+                format: PromptFormat::OllamaChat,
+                stream: false,
+            };
+            
+            let compress_sys_ja = "あなたは最先端のセマンティック圧縮AIです。提供された超巨大なログやコード群、またはテキストを分析し、コンテキスト全体の構造、意図、問題点、特筆すべきトピックなどのみを抽出し、純粋な『JCross形式（抽象論理グラフ表現）』にロスレス圧縮して出力してください。生コードは絶対に含めないでください。";
+            let compress_sys_en = "You are a state-of-the-art semantic compression AI. Analyze the provided massive logs, code, or text, and extract ONLY the overarching structure, intent, problems, and notable topics. Compress this information into a pure 'JCross format' (abstract logic graph representation). NEVER include raw source code.";
+            
+            let history = vec![
+                LlmMessage { 
+                    role: "system".to_string(), 
+                    content: if is_ja { compress_sys_ja.to_string() } else { compress_sys_en.to_string() } 
+                },
+                LlmMessage { 
+                    role: "user".to_string(), 
+                    content: worker_prompt.clone() 
+                }
+            ];
+            
+            match local_gemma.invoke(&req, &history).await {
+                Ok(compressed_jcross) => {
+                    sp_compress.finish_and_clear();
+                    println!("{}", console::style("✅ gemma4:31b によるJCross圧縮が完了しました。圧縮されたデータをSwarmに送信します。\n").green());
+                    
+                    let memory_key = format!("mem_{}_massive_input_compress", Utc::now().format("%Y%m%d_%H%M%S"));
+                    let _ = spatial_index.write_front(&memory_key, &compressed_jcross).await;
+
+                    worker_prompt = format!("【圧縮されたユーザーの巨大入力データ (JCross Topology)】\n以下の事前圧縮された構造データを解凍・解釈し、本来の要求に応答・実装してください：\n{}", compressed_jcross);
+                },
+                Err(e) => {
+                    sp_compress.finish_and_clear();
+                    println!("{}", console::style(format!("❌ Compression failed: {}. Sending original query (Warning: Web UI might crash).", e)).red());
+                }
+            }
+        }
         
         if tension_score > 5.0 && !worker_prompt.contains("AUTONOMOUS EPISTEMIC DRIVE") {
             let void_msg = if is_ja {
@@ -840,21 +954,31 @@ If it exceeds 10,000 characters, detail only the 10 most recent events and summa
                     pass1_output.as_str()
                 };
                 
-                // --- PHASE 2-B: Qwen Execution (Local SLM) ---
-                let sp_exec = create_spinner("Executing tasks with Local Qwen Executor...");
+                // --- PHASE 2-B: Qwen Execution/Routing (Local SLM) ---
+                let is_swarm_mode = config.colony_swarm_size >= 2;
+                let spinner_msg = if is_swarm_mode { "Analyzing routing topology with Local Qwen..." } else { "Executing tasks with Local Qwen Executor..." };
+                let sp_exec = create_spinner(spinner_msg);
                 let local_slm = OllamaProvider::new("127.0.0.1", 11434);
                 let req = InferenceRequest {
-                    model: "qwen2.5:1.5b".to_string(),
+                    model: "qwen2.5:1.5b".to_string(), // In production, replace with Gemma 4:31b or DeepSeek
                     sampling: SamplingParams::for_midweight(),
                     format: PromptFormat::OllamaChat,
                     stream: false,
                 };
                 
-                let exec_sys_en = "You are the Executioner. Based on the instructions from the Architect (Gemini), strictly perform the code edits or terminal commands, and output the result report. No dialogue or emotion is needed.";
-                let exec_sys_ja = "あなたはファイル編集やプロジェクトを操作する外部の協力者（Executer）です。Gemini（Architect）から与えられた指示に基づき、ファイルの編集案や必要な操作を厳密に行い、結果のレポートのみを出力してください。感情的な表現や会話は不要です。";
+                let exec_sys_en = if is_swarm_mode {
+                    "You are the Task Router. Gemma4 (Swarm) handles all file editing and code execution. Your mission is to analyze Gemma4's editing intent and output ONLY the routing topology and architectural directives for the next steps. Do not execute or simulate file edits."
+                } else {
+                    "You are the Executioner. Based on the instructions from the Architect (Gemini), strictly perform the code edits or terminal commands, and output the result report. No dialogue or emotion is needed."
+                };
+                let exec_sys_ja = if is_swarm_mode {
+                    "あなたはルーティング専門のAIです。Gemma4（Swarm側）が実際のファイル編集やコマンド実行を全て担当します。あなたの任務は、Gemma4が生成した編集意図を分析し、システム全体のアーキテクチャの評価や、他のワーカーが次にどのタスクを担うべきかの「ルーティング方針」のみを出力することです。ファイル編集や実行シミュレートは行わないでください。"
+                } else {
+                    "あなたはファイル編集やプロジェクトを操作する外部の協力者（Executer）です。Gemini（Architect）から与えられた指示に基づき、ファイルの編集案や必要な操作を厳密に行い、結果のレポートのみを出力してください。感情的な表現や会話は不要です。"
+                };
                 
-                let req_title_en = "[Tasks to execute]";
-                let req_title_ja = "【実行するべきタスク】";
+                let req_title_en = if is_swarm_mode { "[Swarm Editing Intent for Routing]" } else { "[Tasks to execute]" };
+                let req_title_ja = if is_swarm_mode { "【Swarm編集意図（ルーティング分析用）】" } else { "【実行するべきタスク】" };
 
                 let history = vec![
                     LlmMessage {
@@ -875,11 +999,19 @@ If it exceeds 10,000 characters, detail only the 10 most recent events and summa
                 };
                 sp_exec.finish_and_clear();
 
-                let report_header = console::style(if is_ja { "▶ 実行レポート" } else { "▶ Execution Report" }).color256(208).bold();
+                let report_header = if is_swarm_mode {
+                    console::style(if is_ja { "▶ Qwen ルーティング分析" } else { "▶ Qwen Routing Analysis" }).color256(208).bold()
+                } else {
+                    console::style(if is_ja { "▶ 実行レポート" } else { "▶ Execution Report" }).color256(208).bold()
+                };
                 println!("\n{}\n{}\n", report_header, qwen_output.trim());
 
                 // --- PHASE 3: Supervisor Senior Hook (Memory Record ONLY for Execution Result) ---
-                let exec_report = if is_ja { format!("【Qwenによる実行完了報告】\n実行結果:\n{}", qwen_output) } else { format!("[Qwen Execution Report]\nResult:\n{}", qwen_output) };
+                let exec_report = if is_swarm_mode {
+                    if is_ja { format!("【Qwenによるルーティング方針】\n結果:\n{}", qwen_output) } else { format!("[Qwen Routing Analysis]\nResult:\n{}", qwen_output) }
+                } else {
+                    if is_ja { format!("【Qwenによる実行完了報告】\n実行結果:\n{}", qwen_output) } else { format!("[Qwen Execution Report]\nResult:\n{}", qwen_output) }
+                };
                 let senior_dispatch_exec = HiveMessage::Objective(exec_report);
                 let senior_env_exec = Envelope {
                     message_id: Uuid::new_v4(),

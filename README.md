@@ -1,7 +1,23 @@
 <div align="center">
   <h1>Verantyx: 4-Node Agentic Hierarchy & Carbon Paper UI</h1>
-  <p><b>A highly resilient, Human-in-The-Loop Autonomous Agent System built on top of OpenClaw infrastructure.</b></p>
+  <p><b>A self-evolving Neuro-Symbolic Swarm Agent for macOS. Moving beyond Hermes' text-based skills, Verantyx fuses local Gemma 4 and Stealth Web Gemini via "JCross" spatial memory to autonomously orchestrate native OS operations.</b></p>
 </div>
+
+> ### 📖 Author's Note: The Duality of this Project
+> To those who have stumbled upon this repository and are taken aback by its chaos:
+> 
+> I am a student. This project originally began with the goal of building a "Symbolic Reasoning Engine" to challenge the ARC-AGI. However, I was immediately confronted with the harsh reality of data scarcity and, most importantly, astronomical API costs that a student simply cannot afford.
+> 
+> The reason I am currently employing browser automation (manipulating Web Gemini) is that it serves as an "experimental mode" to bypass API fees, allowing me to run hundreds of reasoning loops. It is a functional mockup designed to visualize how the system orchestrates its logic.
+> 
+> You might also notice that the repository's directory is a mess, containing a chaotic mix of old Python code and seemingly unrelated iOS projects, such as a "Facial Tracking App for Cerebral Palsy Patients using ARKit." 
+> 
+> This is because this repository is not a cleanly packaged software product. It is my **Lab**—a raw, messy accumulation of every theme, experiment, and research remnant I have ever poured my soul into.
+> 
+> Perhaps this project perfectly embodies the **Duality** of a single human being: the burning ambition of wanting "geeks all over the world to give this a Star," coexisting alongside the quiet resignation that "this is ultimately just my personal experimental log."
+> 
+> It is by no means a beautiful codebase. But embedded within it are all my thoughts and my relentless drive to break through the limits of "AI Structural Reasoning" using the absolute minimum of resources.
+
 
 ## 🌐 Overview
 

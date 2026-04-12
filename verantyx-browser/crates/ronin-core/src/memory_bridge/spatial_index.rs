@@ -270,37 +270,57 @@ impl SpatialIndex {
         self.nodes.keys().cloned().collect()
     }
 
-    /// Evaluates the JCross graph for Structural Entropy (Free Energy Principle).
-    /// Returns (Tension Score, Option<Critical Void Node ID>)
     pub fn calculate_structural_tension(&self) -> (f64, Option<String>) {
-        let mut max_tension = 0.0;
-        let mut critical_void_id = None;
+        let mut base_tensions: std::collections::HashMap<String, f64> = std::collections::HashMap::new();
 
+        // Pass 1: Local Inherent Tension Calculation
         for node in self.nodes.values() {
-            // Check if node is highly conceptual/abstract but lacks sufficient connectivity
-            // Weight and Utility naturally increase tension if unfulfilled.
+            let mut inherent_tension = 0.0;
+            
             if node.abstract_level > 0.7 {
                 let connected_count = node.relations.len();
-                
-                // If a heavy conceptual node has too few edge connections:
                 if connected_count < 2 {
-                    // It generates internal strain (Tension)
-                    // Added a multiplier for 'explore/thirst' tags
                     let mut thirst_multiplier = 1.0;
                     for tag in &node.kanji_tags {
                         if tag.name == "探" || tag.name == "渇" {
-                            thirst_multiplier += 2.0;
+                            thirst_multiplier += 1.5;
                         }
                     }
+                    inherent_tension = (node.utility * node.abstract_level * thirst_multiplier * 10.0) / ((connected_count as f64) + 0.1);
+                }
+            }
+            base_tensions.insert(node.key.clone(), inherent_tension);
+        }
 
-                    let tension = (node.utility * node.abstract_level * thirst_multiplier * 10.0) / ((connected_count as f64) + 0.1);
-                    if tension > max_tension {
-                        max_tension = tension;
-                        critical_void_id = Some(node.key.clone());
-                    }
+        // Pass 2: Network Propagation (1-Hop Adjacency Diffusion)
+        let mut final_tensions = base_tensions.clone();
+        for node in self.nodes.values() {
+            let node_base_tension = *base_tensions.get(&node.key).unwrap_or(&0.0);
+            
+            for rel in &node.relations {
+                // If the target exists in our space, apply mutual tension bleed (50% transfer coefficient)
+                if let Some(&target_base) = base_tensions.get(&rel.target_id) {
+                    let transfer_rate = 0.5 * (rel.strength as f64);
+                    
+                    // Node receives tension from Target
+                    *final_tensions.entry(node.key.clone()).or_insert(0.0) += target_base * transfer_rate;
+                    // Target receives tension from Node
+                    *final_tensions.entry(rel.target_id.clone()).or_insert(0.0) += node_base_tension * transfer_rate;
                 }
             }
         }
+
+        // Pass 3: Resolve MAX Tension
+        let mut max_tension = 0.0;
+        let mut critical_void_id = None;
+
+        for (id, tension) in final_tensions {
+            if tension > max_tension {
+                max_tension = tension;
+                critical_void_id = Some(id);
+            }
+        }
+
         (max_tension, critical_void_id)
     }
 

@@ -72,6 +72,9 @@ impl KanjiOp {
         map.insert("完".to_string(), Self::new("完", -0.3, 1.5, 1.0, false));
         map.insert("破".to_string(), Self::new("破", -1.0, 5.0, 0.0, true));
 
+        // ⑧ 技巧・手続き (Procedural / Skill)
+        map.insert("術".to_string(), Self::new("術", 0.8, 0.2, 2.0, false)); // Skills have high gravity, slow decay, wide radius
+
         map
     }
 

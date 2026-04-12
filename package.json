@@ -1,7 +1,7 @@
 {
   "name": "ronin-cli",
   "version": "0.1.0",
-  "description": "Ronin - Masterless Agentic Framework with Browser HITL Relay",
+  "description": "A self-evolving Neuro-Symbolic Swarm Agent for macOS. Moving beyond Hermes' text-based skills, Verantyx fuses local Gemma 4 and Stealth Web Gemini via \"JCross\" spatial memory to autonomously orchestrate native OS operations.",
   "keywords": [],
   "homepage": "https://github.com/openclaw/openclaw#readme",
   "bugs": {
