@@ -1,134 +1,85 @@
 <div align="center">
-  <h1>Verantyx: 4-Node Agentic Hierarchy & Carbon Paper UI</h1>
-  <p><b>A self-evolving Neuro-Symbolic Swarm Agent for macOS. Moving beyond Hermes' text-based skills, Verantyx fuses local Gemma 4 and Stealth Web Gemini via "JCross" spatial memory to autonomously orchestrate native OS operations.</b></p>
+  <h1>Verantyx-Cortex: 4-AI Swarm Hierarchy & Spatial Memory</h1>
+  <p><b>A self-evolving Neuro-Symbolic Swarm Agent for macOS. Verantyx orchestrates a 4-AI architecture (Local SLM + Web Gemini) driven by a 25+ Million line `.jcross` Spatial Memory engine and Model Context Protocol (MCP) integrations.</b></p>
 </div>
-
-> ### 📖 Author's Note: The Duality of this Project
-> To those who have stumbled upon this repository and are taken aback by its chaos:
-> 
-> I am a student. This project originally began with the goal of building a "Symbolic Reasoning Engine" to challenge the ARC-AGI. However, I was immediately confronted with the harsh reality of data scarcity and, most importantly, astronomical API costs that a student simply cannot afford.
-> 
-> The reason I am currently employing browser automation (manipulating Web Gemini) is that it serves as an "experimental mode" to bypass API fees, allowing me to run hundreds of reasoning loops. It is a functional mockup designed to visualize how the system orchestrates its logic.
-> 
-> You might also notice that the repository's directory is a mess, containing a chaotic mix of old Python code and seemingly unrelated iOS projects, such as a "Facial Tracking App for Cerebral Palsy Patients using ARKit." 
-> 
-> This is because this repository is not a cleanly packaged software product. It is my **Lab**—a raw, messy accumulation of every theme, experiment, and research remnant I have ever poured my soul into.
-> 
-> Perhaps this project perfectly embodies the **Duality** of a single human being: the burning ambition of wanting "geeks all over the world to give this a Star," coexisting alongside the quiet resignation that "this is ultimately just my personal experimental log."
-> 
-> It is by no means a beautiful codebase. But embedded within it are all my thoughts and my relentless drive to break through the limits of "AI Structural Reasoning" using the absolute minimum of resources.
-
 
 ## 🌐 Overview
 
-The **Verantyx Browser** subsystem introduces a revolutionary 4-node agentic architecture designed to bypass modern BotGuard and CAPTCHA mechanisms (like those aggressively employed by platforms such as Google Gemini & Claude) while maintaining robust, long-term memory and autonomous task execution capabilities. 
+**Verantyx-Cortex** (and its CLI integration) introduces a revolutionary 4-node agentic architecture designed to autonomously execute tasks, analyze massive codebases, and maintain self-reflexive spatial memory.
 
-By combining local Small Language Models (SLMs) with a robust "Supervisor/Worker" hierarchy, Verantyx acts as a sentient spatial router. Crucially, we enforce a **Carbon Paper UI (Human-in-The-Loop)** mechanism to manually mediate clipboard interactions, definitively solving the bot-detection crisis.
+### 🏗️ The 4-AI Hierarchical Swarm
 
-## ✨ Epic New Features (Vera Lab & Spatial Synthesis)
+Our system is structured into four distinct cognitive roles:
+1. **The Brain / Orchestrator (Web Gemini Pro)**: Acts as the overarching reasoning engine for complex spatial architecture and high-level decision-making.
+2. **The Local Worker (qwen2.5:1.5b / Local SLM)**: Operates locally to handle file system edits, manage memory payloads, and sync the Gemini update cycle to prevent context dilution.
+3. **The Master Observer (Web Gemini)**: Monitors the local AI and injects anti-patterns and logic constraints. Points out critical flaws in memory synthesis.
+4. **The Apprentice Observer (Web Gemini)**: Shadows the Master. Receives memory from the local AI per conversational turn and proposes secondary memory consolidations.
 
-Verantyx has evolved beyond a simple CLI into a full 3D cybernetic workstation.
-
-*   🌌 **Vera Memory (3D Cyber Space)**: Type `vera` to launch a stunning D3/Three.js integrated 3D neural map of your codebase's spatial index.
-*   🔮 **Multi-Node Crucible Synthesis**: Drag and drop up to **10 distinct architecture nodes** into the Crucible Reaction Zone. Click the glowing `[SYNTHESIZE]` button to physically fuse their JCross logic into brand new architectural intermediate representations (IR).
-*   👁️ **Cyberpunk Finder Mode**: Click any node in the 3D map to slide out the sleek Finder Panel. Instantly read the raw source code and JCross semantic tags cleanly inside the browser via our new `/cat` local bridge API.
-*   🎯 **Zero-DOM Safari Injection Tracking**: The system autonomously tracks your active Safari windows, dynamically locating the `gemini.google.com` tab via raw AppleScript geometry matching. It guarantees prompts are securely injected without relying on immediately-flagged Headless DOM automation.
-*   🦉 **Nightwatch Observer**: A local daemon that silently monitors and losslessly compresses your code repository into spatial `JCross` memory structures overnight.
+**The 5-Turn Sync Cycle**: Every 5 turns, the Local Worker gathers time-series memories from both the Master and Apprentice. It integrates them (heavily prioritizing the Master's insights) and overwrites the agent's active spatial memory, ensuring hallucination-free long-term continuity.
 
 ---
 
-## 🏗️ The 4-Node Hierarchical Architecture
+## 🧠 JCross Spatial Memory & Nightwatch
 
-The system is split into four distinct cognitive nodes, completely isolating planning logic from raw web execution.
-
-```mermaid
-graph TD
-    User([👱‍♂️ User]) -->|Task/Prompt| SLM
-    
-    subgraph "Local Cognitive Layer (Secure)"
-        SLM[🤖 Local SLM Router<br>Qwen2.5:1.5b via Ollama]
-    end
-    
-    subgraph "Verification Layer (API/Native)"
-        Senior[🧠 Senior Supervisor<br>Gemini 2.5 Pro]
-        Apprentice[🕵️ Apprentice Supervisor<br>Gemini 2.5 Pro]
-    end
-    
-    subgraph "Execution Layer (Browser)"
-        Worker[🦾 Stealth Web Actor<br>Gemini UI on Safari]
-    end
-    
-    SLM -->|Sub-task Dispatch| Senior
-    SLM -->|Sub-task Dispatch| Apprentice
-    SLM -->|Execution Dispatch| Worker
-    
-    Senior -->|Intent Validation & Memories| User
-    Apprentice -->|Action Auditing| User
-    
-    Worker -->|DOM Interaction| Target[Web Application]
-```
-
-### 1. The Local Planner (SLM: Qwen2.5)
-The brain of the operation runs on local hardware using `Ollama`. It maintains long-term memory, parses user intent, avoids context dilution, and breaks down complex prompts into specific sub-tasks to be dispatched to the remote models. It serves as an impermeable wall protecting the core agent logic from the massive context window destruction prevalent in long-running cloud instances.
-
-### 2. Senior Supervisor (Gemini via API)
-The Senior Supervisor receives payloads from the SLM, analyzing them to ensure the output aligns exactly with what the User intended. It injects additional memory and refines prompts without actually executing them on the target machine.
-
-### 3. Apprentice Supervisor (Gemini via API)
-The Apprentice operates on a 5-turn promotion cycle, shadowing the Senior and ensuring spatial state is synced accurately within the `.ronin/experience.jcross` database.
-
-### 4. Stealth Worker (Gemini UI on Safari)
-The "Hands and Feet". This node controls the actual Web UI. Because BotGuard instantly detects headless Chrome automation, puppeteer, or injected JavaScript events, the Worker operates **entirely via human-mediated native OS actions**.
+Verantyx does not rely on typical RAG. It utilizes **JCross (.jcross)**—a highly condensed, semantic "Spatial Tensor" memory format. 
+* The system actively holds **over 25 million lines** of `.jcross` data.
+* This includes massive ontology dictionaries (WordNet), hundreds of automated reasoning benchmarks, and continuous anti-pattern learning.
+* **Nightwatch Protocol**: A background daemon that awakens to observe file modifications and losslessly compresses them into `.jcross` spatial nodes using local SLMs (e.g., `gemma4:26b`).
 
 ---
 
-## 🛡️ Carbon Paper UI (BotGuard Evasion & HITL)
+## 🚀 Setup Instructions
 
-To defeat advanced anti-bot systems, we implemented the **Carbon Paper UI**—a secure "Human-in-The-Loop" (HITL) manual handoff protocol.
+Say goodbye to chaotic dependency hell. Verantyx unifies everything under a **Single Rust Entrypoint** using `cargo`.
 
-Instead of writing scripts to click buttons (which are instantly blocked), the system automatically formats the perfectly optimized prompt and securely injects it into the macOS Clipboard. It then prompts the user via a terminal Dialoguer.
+### 1. Prerequisites
+- **macOS** (Apple Silicon recommended for local SLM execution / Safari Automation)
+- **Rust Toolchain** (`cargo`)
+- **Node.js & pnpm** (For building the MCP layers)
+- **Ollama** installed and running on localhost.
+  * *Required Models:* `qwen2.5:1.5b` (Worker), `gemma4:26b` (Nightwatch observer suite)
 
-### Operational Flow
-
-1. **Prompt Generation:** SLM + Supervisors construct the optimal prompt.
-2. **Clipboard Hydration:** The OS Clipboard is silently loaded via `arboard`.
-3. **Target Acquisition:** The user is prompted in the CLI. The system programmatically brings `Safari` to the foreground via macOS Native APIs, specifically hunting for the Gemini tab.
-4. **Human Actuation / Auto-Stealth:** Depending on your mode, the system either gracefully pastes the content or prompts you to hit `Cmd+V + Enter`. This completely circumvents BotGuard.
-5. **Tamper Verification:** The agent polls the clipboard post-submission using geometric extraction to ensure flawless extraction.
-
----
-
-## 🚀 Getting Started & Diagnostics
-
-Say goodbye to the chaotic `pip install`, `npm run`, and dependency hell. 
-Verantyx unifies everything under a **Single Rust Entrypoint** using `cargo`. Any auxiliary Python scripts or JavaScript UI dependencies are seamlessly executed and managed by the Rust orchestration layer.
-
-Ensure you have your environment set up and `Ollama` running with your desired parameter models.
-
-### 🖥️ Launch the Core Engine
-Start the primary Verantyx interactive chat repl.
+### 2. Bootstrapping the Engine
 ```bash
-# Simply run cargo. It automatically coordinates any auxiliary scripts.
-cd verantyx-browser
+# 1. Clone the repository
+git clone https://github.com/Ag3497120/verantyx-cli.git
+cd verantyx-cli/verantyx-browser
+
+# 2. Start the primary Verantyx interactive Swarm
 cargo run -p ronin-hive --example interactive_chat
 ```
 
-### 🧠 REPL Commands
-Once inside the REPL, you can utilize the following spatial intelligence commands:
+---
 
-*   **`vera`** 
-    Launch the **Vera Memory 3D Visualizer**. This opens a browser-based neural map of your codebase's JCross state. You can click files to read them or drag them to the center to synthesize them.
-*   **`time-machine <path>`** 
-    Force a spatial indexing scan of a directory. It compresses code into `.jcross` format and links dependencies. (e.g., `time-machine .`)
-*   **`crucible <file_1> <file_2> ... <file_N>`** 
-    Trigger a multi-node synthesis. Takes up to 10 file identifiers, fusing them in memory and outputting a cutting-edge architectural concept and execution snippet.
-*   **`clear`** 
-    Clear the terminal repl history for a clean view.
+## 🔌 MCP (Model Context Protocol) Setup
 
-### Important Fixes (Version 1.3+)
-- **N-Node Crucible Expansion:** Synthesis limits lifted. Safely fuse massive architectures across up to 10 nodes simultaneously.
-- **Finder Sidebar UI:** Read codebase structure gracefully without exiting the Visualizer.
-- **Multi-byte Panic Elimination:** Japanese character boundary index panics `[0..80]` have been comprehensively replaced with safe `.chars().take(N)` iterators across all nodes.
+Verantyx leverages MCP to securely bridge the Swarm AI with local file systems and deep memory compilation.
 
-## 📝 License
-Proprietary. Belongs to the Verantyx spatial intelligence framework.
+1. **Install MCP dependencies**:
+   Run the build script in the root directory or specifically for memory:
+   ```bash
+   pnpm install
+   pnpm build
+   ```
+2. **Register MCP Servers**:
+   The system utilizes custom MCP servers like `verantyx-compiler` (for Tri-Layer Memory) and `jcross-memory` (for direct node reads). Ensure your native AI Gateway/Client points to the built MCP entry points.
+3. In runtime, the `StealthGemini` worker will autonomously interface with MCP to execute robust File I/O operations and geometric extraction.
+
+---
+
+## 🔮 The `vera` Memory Trigger
+
+Verantyx features a manual, human-in-the-loop memory compilation override:
+
+When you include the keyword **`vera`** or **`verantyx`** anywhere in your prompt, the AI will intercept the conversation and silently trigger the **`compile_trilayer_memory`** MCP tool.
+
+* **What it does**: It forces the Swarm to stop, extract the critical context, structural decisions, and active codebase states from the current turn, and permanently compile them into the JCross Spatial Drive (Front Memory).
+* **Usage Example**: Simply type your request like *"Update the README with our setup configurations. vera"* during a chat session to guarantee the action is permanently indexed.
+
+---
+
+## 📝 Project Duality & Design Philosophy
+
+> *I am a student. This codebase is my Lab—a raw, messy accumulation of every experiment I have poured my soul into to challenge ARC-AGI and overcome API limits. It fuses local LLMs with Browser automation as an experimental mockup to bypass API fees. It's not perfectly clean, but embedded within it is a relentless drive to break through the limits of AI Structural Reasoning.*
+
+**License**: Proprietary. Belongs to the Verantyx spatial intelligence framework.
