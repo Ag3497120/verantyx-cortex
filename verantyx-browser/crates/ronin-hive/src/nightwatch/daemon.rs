@@ -75,14 +75,22 @@ Code:
 ```"#,
                 file_path,
                 // Truncate if insanely large to fit in local SLM 8k-32k window
-                if file_content.len() > 16000 { &file_content[..16000] } else { &file_content }
+                if file_content.len() > 16000 {
+                    let mut b = 16000;
+                    while !file_content.is_char_boundary(b) && b > 0 {
+                        b -= 1;
+                    }
+                    &file_content[..b]
+                } else {
+                    &file_content
+                }
             );
 
             let request = ronin_core::models::sampling_params::InferenceRequest {
                 model: self.config.nightwatch.model.clone(),
                 format: ronin_core::models::sampling_params::PromptFormat::OllamaChat,
                 stream: false,
-                sampling: ronin_core::models::sampling_params::SamplingParams::for_lightweight(),
+                sampling: ronin_core::models::sampling_params::SamplingParams::for_heavyweight().with_temperature(0.1),
             };
 
             let messages = vec![
