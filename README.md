@@ -5,6 +5,8 @@
 A self-organizing spatial memory engine for AI systems via the Model Context Protocol (MCP).  
 Compress conversations into structured nodes. Retrieve them in milliseconds. Never lose context again.
 
+📖 **[Full MCP Usage Guide →](./USAGE.md)** — All 19 tools, workflows, Kanji reference, and troubleshooting.
+
 ```
 boot()        → load your entire project knowledge in one call
 calibrate()   → rebuild expert context after any model switch  
