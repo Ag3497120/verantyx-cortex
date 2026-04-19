@@ -1,260 +1,255 @@
-# Verantyx Cortex — Tri-Layer JCross Spatial Memory Engine
+# Verantyx Cortex — Tri-Layer JCross Memory Engine
 
-**Pure CPU, LLM-agnostic, persistent spatial memory for AI systems via Model Context Protocol (MCP).**
-
-Verantyx Cortex resolves the fundamental constraint of LLM context windows. Instead of storing raw chat logs or relying on heavy embedding models, it compresses knowledge into a strict **3-Layer JCross format** and stores it permanently on disk. Any AI (Claude, Gemini, GPT, Cursor) can use it via MCP with zero configuration overhead.
-
-The system's design goal: **a new LLM session started after a model switch should reach project-expert-level context within 5–7 tool calls, without any human prompting.**
+> **Pure CPU · LLM-agnostic · MCP-native**  
+> 永続的な空間記憶システム。コンテキストウィンドウを信頼するな — MCPを信頼せよ。
 
 ---
 
-## 🏗️ Architecture: Tri-Layer Spatial Memory
+## 概要
 
-Each memory node (`.jcross` file) is structured in 3 resolutions, mirroring how human memory operates:
+Verantyx Cortex は、LLMのコンテキストウィンドウ制限を根本的に解消します。  
+会話・決定・知識を **3層JCross形式** に圧縮してディスクに永続保存し、あらゆるAI（Claude・Gemini・GPT・Cursor）がMCP経由でゼロ設定で利用できます。
 
-| Layer | Name | Description | Cost |
-|-------|------|-------------|------|
-| **L1** | Kanji Topology | Ultra-compressed spatial tags (`[標:1.0] [技:0.9]`) for instant O(1) scanning | Near-zero |
-| **L1.5** | Index Line | 60-char compact summary: `[漢字] key entities` for bulk scan without loading L2/L3 | Near-zero |
-| **L2** | Operational Logic | `OP.MAP` / `OP.FACT` / `OP.STATE` symbolic structures capturing intent and decisions | Low |
-| **L3** | Raw Ground Truth | Verbatim original text. Only parsed for high-precision tasks | High (on-demand) |
+**新規LLMセッションが `boot()` → `guide()` の2コールで専門家レベルのコンテキストを再構築できます。**
 
-This **variable-gear** design means:
-- Routine tasks use only L1+L2 → zero context pollution, maximum speed
-- Critical tasks fall back to L3 → full fidelity, no information loss
+---
 
-### Spatial Memory Zones
+## 🏗️ アーキテクチャ：3層JCross記憶
 
-Memory nodes live in one of four physical directories, reflecting their current priority:
+各メモリノード (`.jcross` ファイル) は3層構造です：
+
+| 層 | 名称 | 内容 | コスト |
+|:---|:---|:---|:---|
+| **L1** | 漢字トポロジー | `[核:1.0] [技:0.9]` — O(1)スキャン用超圧縮タグ | ほぼゼロ |
+| **L1.5** | インデックス行 | 60文字の一行サマリー。bulk scanに使用 | ほぼゼロ |
+| **L2** | 操作ロジック | `OP.FACT/STATE/ENTITY` — 意図・決定・事実を構造化 | 低 |
+| **L3** | 生テキスト | 元の会話・ドキュメント。高精度タスクのみ使用 | 高（オンデマンド）|
+
+### 空間メモリゾーン
 
 ```
 ~/.openclaw/memory/
-  front/   ← Active working memory (cap: 100 nodes)
-  near/    ← User's own recent knowledge (cap: 1,000 nodes)
-  mid/     ← User's own compressed/archived memories (cap: 5,000 nodes)
-  deep/    ← External/benchmark data, cold storage (no cap)
+  front/   ← アクティブ作業記憶 (上限: 100ノード)
+  near/    ← ユーザー自身の最近の記憶 (上限: 1,000)
+  mid/     ← ユーザー自身の長期記憶 (上限: 5,000)
+  deep/    ← 外部データ・ベンチデータ・コールドストレージ (上限なし)
   meta/
-    decisions.jsonl   ← Decision ledger (Track C)
-    ref_counts.json   ← Reference counter (Track A-2)
+    decisions.jsonl   ← GC決定ログ (Track C)
+    ref_counts.json   ← 参照カウンター (Track A-2)
 
-~/.openclaw/calibration/        ← ISOLATED — never pollutes main memory
-  snapshot.json                 ← Non-destructive memory snapshot
-  task_bank.jsonl               ← Accumulated meaningful calibration tasks
-  sessions/cal_<timestamp>.md   ← Per-session calibration packets
-  index.jcross                  ← Calibration session history
-  config.json                   ← User's calibration command settings
+~/.openclaw/calibration/   ← 本体記憶を汚染しない独立ストア
+  config.json              ← セットアップ設定
+  tool_aliases.json        ← ツールエイリアス (rename_tool で追加)
+  snapshot.json            ← 非破壊メモリスナップショット
+  task_bank.jsonl          ← 蓄積キャリブレーションタスク
+  sessions/                ← セッション履歴
 ```
 
-> **Zone Semantics (non-negotiable):**  
-> `mid/` is **only** for the user's own compressed memories — never external or benchmark data.  
-> `BENCH_*` / `Session sharegpt_*` / `Session ultrachat_*` → always `deep/`, enforced automatically by `classifyNode()`.
+> **ゾーン設計原則（不変）**  
+> `mid/` = ユーザー自身の記憶 **のみ**。外部データ・ベンチデータは必ず `deep/` へ。  
+> `classifyNode()` がすべての書き込み前に自動的にこれを実施します。
 
 ---
 
-## ⚙️ Triple-Track Autonomous GC
+## ⚙️ Triple-Track 自律GC
 
-The memory system manages itself through three independent, parallel mechanisms:
+記憶システムは3つの独立した仕組みで自律管理されます：
 
-### Track A-1: Content Classifier (`classifyNode`)
-Runs **before every write**. Determines the correct zone from content fingerprints — no LLM call, < 1ms.
+### Track A-1: コンテンツ分類器 (`classifyNode`)
+書き込み前に実行。内容フィンガープリントから正しいゾーンを決定。LLMコールなし・< 1ms。
 
 ```
-Priority (first match wins):
-  1. BENCH_* / "Session sharegpt_*" → deep/   (conf: 0.95)
-  2. OP.ENTITY("user_name") marker  → front/  (conf: 1.0)
-  3. OP.STATE("current_*")          → front/  (conf: 0.9)
-  4. [技|核] + code keywords         → near/   (conf: 0.8)
-  5. [人|感|動] kanji                → near/   (conf: 0.75)
-  6. JCROSS_GHOST / ARCHIVED        → mid/    (conf: 0.9)
-  7. Default                         → near/
+BENCH_* / Session sharegpt_*  → deep/   (conf: 0.95)
+user_name / profile           → front/  (conf: 1.0)
+OP.STATE("current_*")         → front/  (conf: 0.9)
+[技|核] + コードキーワード    → near/   (conf: 0.8)
+デフォルト                    → near/
 ```
 
-### Track A-2: Reference Count Ledger
-Every `read()` increments a counter in `meta/ref_counts.json`.  
-"Cold" nodes (low ref-count + stale mtime) cascade down autonomously:
-- `front/`: 3 days, < 2 reads → demote to `near/`
-- `near/`:  7 days, < 1 read  → demote to `mid/`
+### Track A-2: 参照カウンターGC
+`read()` 呼び出しのたびにカウンターをインクリメント。  
+コールドノード（低参照 + 古いmtime）を自動降格：
+- `front/`：3日 + 2回未満 → `near/`
+- `near/`：7日 + 1回未満 → `mid/`
 
-### Track B: LRU Time-Based Cap Eviction
-When a zone exceeds its cap, the oldest-mtime nodes are pushed to the next zone.  
-A **Tombstone** (`JCROSS_TOMB_<filename>`) is written in the source zone, preserving L1 Kanji topology so the node can be found instantly even after eviction.
+### Track B: LRU上限エビクション + Tombstone
+ゾーンが上限を超えると最古ノードをpush。  
+**Tombstone** (`JCROSS_TOMB_<filename>`) を移動元に残し、エビクト後もL1漢字経由で発見可能。
 
-### Track C: Contextual Intelligence Index (Decision Ledger)
-Every GC decision (A-1, A-2, B) is appended to `meta/decisions.jsonl`.  
-Every 50 decisions, `PatternExtractor` analyzes the ledger and updates `front/PROJECT_WISDOM.jcross`.
-
-`PROJECT_WISDOM.jcross` is read by every new LLM session via `session_bootstrap()` — **making any blank-slate model perform like a project expert** without human prompting.
+### Track C: 決定台帳 → PROJECT_WISDOM
+50決定ごとに `PatternExtractor` が集計し `PROJECT_WISDOM.jcross` を更新。  
+新規LLMが `boot()` でこれを読むことで、プロジェクト専門家レベルの判断が可能になります。
 
 ---
 
-## 🔧 MCP Tools (v3.0 — 9 tools)
+## 🔧 MCPツール一覧
 
-### Core Memory Operations
+### ツール名は短くシンプル
 
-#### `compile_trilayer_memory`
-Compiles a conversation or decision into a permanent JCross node.  
-Now runs `classifyNode()` **before writing** — the node is placed in the correct zone immediately.
+| ツール名 | 旧名 | 用途 |
+|:---|:---|:---|
+| `remember` | compile_trilayer_memory | 記憶を保存 |
+| `scan` | scan_front_memory | front/をスキャン |
+| `map` | memory_map | 全ゾーン概観 |
+| `read` | read_node | ノードを読み込む |
+| `search` | semantic_op_search | L2セマンティック検索 |
+| `aggregate` | aggregate_memory_search | 複数ノード集計 |
+| `find` | spatial_cross_search | 漢字トポロジー検索 |
+| `move` | migrate_memory_zone | ゾーン間移動 |
+| `boot` | session_bootstrap | **セッション起動（必ず最初に）** |
+| `recall` | recall_fact | 事実を即座に照会 |
+| `store` | store_fact | 事実を永続保存 |
+| `gc` | run_lru_gc | GCを手動実行 |
+| `guide` | generate_reimmersion_guide | 再没入プロトコル生成 |
+| `evolve` | evolve_character | キャラクター進化 |
+| `soul` | get_character | キャラクター表示 |
+| `setup` | setup_calibration | 初回設定 |
+| `calibrate` | run_calibration | キャリブレーション実行 |
+| `rename_tool` | — | **ツール名を変更** ✨新機能 |
+| `list_aliases` | — | エイリアス一覧 |
 
-```json
-{
-  "kanjiTags": "[核:1.0] [技:0.9] [標:0.8]",
-  "l1Summary": "Implemented triple-track autonomous GC.",
-  "midResOperations": ["OP.FACT(\"current_phase\", \"Track C integration\")"],
-  "rawText": "Full session context here..."
-}
+### ✨ ツール名を自由に変更できます
+
+LLMに話しかけるだけで変更できます：
+
+```
+「calibrateというツールをveraという名前で呼べるようにして」
 ```
 
-#### `scan_front_memory`
-Returns all `front/` nodes as compact L1.5 index lines (≈ 60 chars each).
+LLMは以下を実行します：
 
-#### `memory_map`
-Returns a global overview of all zones using L1.5 index. Minimal context cost.
+```
+rename_tool({ from: "calibrate", to: "vera" })
+```
 
-#### `read_node`
-Fetches a specific node by filename. Returns L2+L3 (or L1/L2/L3 selectively).  
-Increments the reference counter automatically.
-
-#### `semantic_op_search`
-Searches L2 Operation Commands across all zones for named entities, facts, quantities.
-
-#### `aggregate_memory_search`
-Multi-node aggregation: retrieves and combines multiple nodes for cross-session analysis.
-
-#### `migrate_memory_zone`
-Manually moves a node between zones. Writes a tombstone in the source zone.
-
-#### `spatial_cross_search`
-L1 Kanji topology search using ARC-SGI Gravity Z-Depth algorithm.  
-Input: `{"核": 1.0, "技": 0.9}` → returns nodes sorted by gravity score.
-
-### Session Management Tools
-
-#### `session_bootstrap`
-**Call this first on every new session.**  
-Returns: `project_wisdom` (zone rules + accumulated rules) + `user_profile` + `front_nodes` + zone counts.  
-No file reads required — everything comes from MCP memory.
-
-#### `recall_fact(key)`
-Instant lookup of a specific profile key (e.g., `bench_score`, `current_objective`).
-
-#### `store_fact(key, value)`
-Persists a fact to `front/user_profile.jcross` immediately.
-
-### GC & Calibration Tools
-
-#### `run_lru_gc`
-Triggers the full triple-track GC manually. Returns a detailed report:
-- `classifier`: nodes reclassified by content fingerprint
-- `coldEvictions`: nodes demoted by ref-count
-- `lruEvictions`: nodes evicted by LRU cap
-
-#### `generate_reimmersion_guide`
-**The cognitive cold-start eliminator.**  
-Generates a step-by-step protocol (7–9 steps) that brings a blank-slate LLM to project-expert state using only tool calls. Includes fictional review tasks pointing to real architecture files, Kanji search vectors, and a synthesis prompt.  
-Saves `REIMMERSION_PROTOCOL.jcross` to `front/`.
-
----
-
-## 🧰 Calibration CLI
-
-The calibration system is **fully isolated** from the main memory (`~/.openclaw/calibration/` only).
-
-### Setup (first time)
+→ 以後、`vera()` が `calibrate()` と同じ動作をします。  
+エイリアスは `~/.openclaw/calibration/tool_aliases.json` に永続保存されます。
 
 ```bash
-npm run setup
+# 現在のエイリアス一覧
+list_aliases()
+
+# 例: 複数のエイリアス
+rename_tool({ from: "boot",      to: "start" })
+rename_tool({ from: "calibrate", to: "vera"  })
+rename_tool({ from: "remember",  to: "mem"   })
 ```
 
-Interactive wizard:
-1. Choose your **custom command name** (e.g., `cal`, `moto-cal`, `vera`)
-2. Set project root
-3. Register a **shell alias** in `~/.zshrc` / `~/.bashrc`
-4. Run initial calibration
+エイリアスをチェーンすることも可能です：`vera → calibrate`、`v → vera → calibrate` のように解決されます。
 
-### Running Calibration
+---
+
+## 🚀 新規セッション プロトコル
+
+モデル切り替え・セッション再開時の標準フロー：
+
+```
+1. boot()         ← PROJECT_WISDOM + user_profile + zone counts
+2. guide()        ← 再没入プロトコル（7-9ステップ）
+3. calibrate()    ← キャリブレーションパケット（タスク生成）
+```
+
+または `setup()` でターミナルコマンド（例: `vera`）を登録しておけば：
 
 ```bash
-cal                  # Standard calibration packet (stdout)
-cal --sync           # + update REIMMERSION_PROTOCOL.jcross
-cal --output json    # JSON format
+vera    # = calibrate() を端末から実行
 ```
 
-Or via npm:
-```bash
-npm run calibrate
-npm run calibrate:sync
-npm run calibrate:json
-```
+### ターミナル不要の運用
 
-### What the Calibration Packet Contains
+Claude Desktop / Cursor / Antigravity から直接：
 
-1. **First call**: `session_bootstrap()` — always
-2. **User profile** from MCP memory
-3. **Accumulated rules** from `decisions.jsonl` (e.g., `BENCH_* → deep/ conf=0.99, n=1166`)
-4. **Memory-derived tasks** (Strategy A) — from real GC decisions and L1 summaries
-5. **Git Diff reverse tasks** (Strategy B) — from past fix/bug commits, file paths auto-extracted
-6. **L1.5 sampling tasks** (Strategy C) — daily-rotating node pairs for dependency exploration
-7. **Architecture file tasks** — key files to read for code context
-8. **Kanji search vectors** for `spatial_cross_search`
-9. **Synthesis prompt** — what to internalize after completing the tasks
-
-All tasks are **meaningful** because they draw from real session history, not generic file patterns.
+| 操作 | MCPツール |
+|:---|:---|
+| 初回設定 | `setup(command_name="vera")` |
+| セッション起動 | `boot()` |
+| 再没入 | `guide()` |
+| キャリブレーション | `calibrate()` |
+| ツール名変更 | `rename_tool(from="calibrate", to="vera")` |
+| キャラクター進化 | `evolve()` |
 
 ---
 
-## 📋 New Files (v3.0)
+## 👤 キャラクターエンジン
 
-| File | Description |
-|:-----|:------------|
-| `src/memory/intelligence.ts` | Track C: `DecisionLedger`, `PatternExtractor`, `updateProjectWisdom()` |
-| `src/memory/reimmersion.ts` | Cold-start eliminator: `generateReimmersionGuide()`, `writeReimmersionProtocol()` |
-| `src/memory/calibration_store.ts` | Isolated calibration memory, three task-generation strategies |
-| `src/cli/calibrate.ts` | Zero-cost calibration CLI with memory-aware task generation |
-| `src/cli/setup.ts` | Interactive setup wizard — custom command name, shell alias registration |
-
-### Modified Files (v3.0)
-
-| File | Changes |
-|:-----|:--------|
-| `src/memory/engine.ts` | Full rewrite: `classifyNode()`, `RefCountLedger`, `runAutonomousGc()` (triple-track) |
-| `src/memory/auto-selector.ts` | Wired `classifyNode()` pre-write + `runAutonomousGc()` post-write |
-| `src/mcp/server.ts` | Added 5 new tools: `session_bootstrap`, `recall_fact`, `store_fact`, `run_lru_gc`, `generate_reimmersion_guide` |
-| `package.json` | Added `setup`, `calibrate`, `calibrate:sync`, `calibrate:json` scripts |
-
----
-
-## 🚀 Quick Start (New Session Protocol)
-
-When starting a new session on an existing project:
+MCPを使うほど成長するキャラクターシステム。
 
 ```
-1. session_bootstrap()              → PROJECT_WISDOM + user_profile
-2. generate_reimmersion_guide()     → step-by-step re-immersion protocol
-3. Follow the protocol steps:
-   a. recall_fact("current_objective")
-   b. recall_fact("bench_score")
-   c. Read 4–5 architecture files (engine.ts, server.ts, intelligence.ts, ...)
-   d. spatial_cross_search({"核": 1.0, "技": 0.9, "標": 0.8})
+記憶の蓄積
+  ↓ 漢字トポロジー頻度
+  ↓ 意思決定パターン
+  ↓ L1サマリーの語感
+  ↓
+evolve()  → SOUL.jcross → front/
+               ↓
+          boot() で次のLLMが継承
 ```
 
-Or just run `cal` (after setup) from your terminal before switching to a new model.
+**5段階レベル：**
+
+| Level | 名称 | XP | 説明 |
+|:---:|:---|:---|:---|
+| 1 | Awakening | 0-10 | 記憶が芽吹き始めた存在 |
+| 2 | Forming | 11-50 | 自分の形を見つけようとしている |
+| 3 | Developing | 51-200 | 独自の視点と価値観が固まりつつある |
+| 4 | Established | 201-1000 | 成熟した知性と一貫した世界観を持つ |
+| 5 | Legendary | 1000+ | 記憶と経験が深く融合した伝説的存在 |
+
+**漢字 → 性格マッピング（15次元）：**
+
+```
+[核] Core Synthesizer    — 本質を直感的に掴む
+[技] Technical Precision — 技術的精度へのこだわり
+[人] Empathic Connector  — 他者との関係性を大切に
+[値] Data Architect      — データから真実を読む
+[動] Action Driver       — 考えるより動く
+[感] Intuitive Reader    — 直感と感情的知性
+[認] Pattern Weaver      — 見えないパターンを発見
+[標] Strategic Visionary — ゴールから逆算する
+[記] Memory Keeper       — 歴史と文脈を保持する
+[構] Systems Builder     — スケーラブルな構造を設計
+[通] Bridge Maker        — 異なる概念を繋ぐ
+[職] Craft Master        — 仕事への誇りと専門性
+```
 
 ---
 
-## 📊 Performance History
+## 📁 ファイル構成
 
-| Version | Score | Method |
-|---------|-------|--------|
-| v1.0 (flash_agent) | 13.8% | Basic memory_map + retrieve |
-| v3.0 (7-question test) | 85.7% | memory_map + read_node + semantic_op_search |
-| Target | 85%+ | Full 500-question LongMemEval |
+```
+src/
+  mcp/server.ts              MCPサーバー (19ツール)
+  memory/
+    engine.ts                Triple-track GC + Tombstone
+    intelligence.ts          DecisionLedger + PatternExtractor
+    reimmersion.ts           コールドスタート解消
+    calibration_store.ts     3戦略タスク生成
+    soul.ts                  キャラクターエンジン
+    auto-selector.ts         pre-write zone分類
+    types.ts                 共有型定義
+  cli/
+    calibrate.ts             キャリブレーションCLI
+    setup.ts                 セットアップウィザード
+
+benchmark/                   ベンチマークスクリプト + 結果
+```
 
 ---
 
-## 🗺️ Roadmap
+## 📊 ベンチマーク実績
 
-- [ ] Full 500-question LongMemEval re-run with triple-track GC
-- [ ] Kanji 18-dimension taxonomy documentation
-- [ ] `mid/` sublimation: in-session LLM compression (no external API)
-- [ ] Calibration feedback loop: task completion → DecisionLedger update
-- [ ] iOS on-device inference integration (MLX-Swift / VerantyxMobileBench)
+| バージョン | スコア | 手法 |
+|:---|:---|:---|
+| v1.0 (flash_agent) | 13.8% | 基本的な memory_map + retrieve |
+| v3.0 (7問テスト) | 85.7% | map + read + search の組み合わせ |
+| 目標 | 85%+ | 500問 LongMemEval フル実行 |
+
+---
+
+## 🗺️ ロードマップ
+
+- [ ] 500問 LongMemEval フル再実行（Triple-track GC込み）
+- [ ] 漢字18次元タクソノミー文書化
+- [ ] `mid/` 昇華：セッション内LLM圧縮（外部APIなし）
+- [ ] キャリブレーションフィードバックループ（タスク完了 → DecisionLedger更新）
+- [ ] iOS on-device推論統合 (MLX-Swift / VerantyxMobileBench)
